@@ -66,12 +66,12 @@ function decodeCharger(view){
   // TODO: Byte 15 und Bedeutungen von State/Flags verifizieren. MPP/PeakPeak ohne Einheit.
   return {vbus:view.getUint16(0,true)/1000,ibus:view.getUint16(2,true)/1000,vout:view.getUint16(4,true)/1000,iout:view.getUint16(6,true)/1000,vrect:view.getUint16(8,true)/1000,rectPower:view.getUint16(10,true)/1000,mpp:view.getUint16(12,true)/1000,peakPeak:view.getUint8(14)/2.5,chargerState:view.getUint8(16),flags:view.getUint8(17)};
 }
-// BtAPPCON3000.java:190–198 overrides the generic BtDynamoHarvester decoder.
+// APPCON3000 HighRes CSC: device timestamp in Q32.32 seconds.
 // Two LE uint32 words: fraction at 4 / 2^32 + whole seconds at 8 (Q32.32 seconds).
-// Original Java: (long)((unsignedHigh + unsignedLow / 4294967296.0) * 32768).
-// Keep the original double arithmetic and truncation; never coerce uint32 to signed int.
+// poleTime = trunc((unsignedHigh + unsignedLow / 4294967296.0) * 32768).
+// Use double arithmetic and truncation; never coerce uint32 to signed int.
 function decodeHighRes(view){
-  requireLength(view,18); // Same minimum as the original; trailing bytes remain uninterpreted.
+  requireLength(view,18); // Minimum packet length; trailing bytes remain uninterpreted.
   return {counter:view.getUint32(0,true),poleTime:Math.trunc(
     (view.getUint32(8,true)+view.getUint32(4,true)/4294967296)*32768)};
 }
@@ -89,13 +89,12 @@ function decoderSelfTest(){
   console.debug('Decoder-Selbsttest erfolgreich');
 }
 
-// Distanz/Geschwindigkeit — sources/de/thomastreyer/beonbike/model/:
-// BobSegment.java:440–482 keeps 256 points and searches backwards for >=16393 ticks.
-// Its speed multiplier is literally 32786, NOT the decoder's 32768 ticks/second.
-// Preserve this original discrepancy (~0.055%); its physical justification is unknown.
+// Distanz/Geschwindigkeit: device-time smoothing.
+// Keep 256 points and search backwards for >=16393 ticks.
+// Compatibility speed multiplier: 32786; decoder timebase: 32768 ticks/second.
+// Preserve this observed discrepancy (~0.055%); its physical justification is unknown.
 // v[km/h] = deltaPoles / deltaPoleTime * circumference / poles * 32786 * 3.6.
-// The Android receive-time throttle (>200 ms) is intentionally omitted: every valid
-// notification contributes distance; receive timing never supplies speed.
+// Every valid notification contributes distance; receive timing never supplies speed.
 const SPEED_TICK_FACTOR = 32786;
 const SPEED_WINDOW_TICKS = 16393;
 const POLE_TIME_MODULUS = 2 ** 47; // Q32.32 seconds converted to 2^15 ticks/second.
@@ -109,9 +108,8 @@ function processPulses(sample,receivedAt){
   const previous=previousSample;
   if(!previous){rebaseMotion(sample);return;}
   const delta=(sample.counter-previous.counter+2**32)%2**32;
-  // Original uses Java int subtraction (wraps for small forward pulse deltas),
-  // but has no explicit timestamp rollover/reset guard. These guards are app additions:
-  // modulo 2^47 ticks handles seconds-word wrap; >half range means backward/reset.
+  // Unsigned modular deltas handle pulse-counter and seconds-word rollover.
+  // Modulo 2^47 ticks handles seconds-word wrap; >=half range means backward/reset.
   const ticks=(sample.poleTime-previous.poleTime+POLE_TIME_MODULUS)%POLE_TIME_MODULUS;
   if(delta===0 && ticks===0)return; // Duplicate: do not refresh the no-pulse watchdog.
   if(delta>0x7fffffff || ticks<=0 || ticks>=POLE_TIME_MODULUS/2){
