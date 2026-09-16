@@ -13,6 +13,31 @@ Dieses Projekt ist eine unabhängige, inoffizielle Implementierung zur Interoper
 
 Ohne `navigator.bluetooth` zeigt die App den Hinweis, die Seite in WebBLE zu öffnen. Die tatsächliche Kompatibilität mit Gerät und WebBLE muss noch auf einem iPhone geprüft werden. Hintergrundbetrieb und Bildschirm-Sperre können die Messung unterbrechen. Während einer Trennung oder Hintergrundpause ist keine vollständige Streckenerfassung gewährleistet. Nach Verbindungsaufbau bzw. Sichtbarkeitswechsel dient das erste CSC-Paket als neue Basis.
 
+## Bildschirm eingeschaltet lassen
+
+Unter **Einstellungen** kann „Bildschirm eingeschaltet lassen“ aktiviert werden.
+Die App nutzt die [Screen Wake Lock API](https://www.w3.org/TR/screen-wake-lock/),
+sofern WebBLE/iOS sie bereitstellt. Der Status zeigt, ob tatsächlich ein Lock gehalten
+wird. „Jetzt aktivieren“ erlaubt einen manuellen erneuten Versuch.
+
+Gespeichert wird nur die Benutzerpräferenz unter einem separaten lokalen Schlüssel.
+Nach einem Neuladen wird kein Lock automatisch angefordert: Erst das Antippen von
+„Jetzt aktivieren“ oder „APPCON verbinden“ aktiviert die gespeicherte Präferenz.
+Nach dieser Benutzeraktion versucht die App beim Zurückkehren in den Vordergrund
+einmal erneut, einen fehlenden Lock anzufordern. Ablehnungen und Freigaben lösen
+keine Wiederholungsschleife aus. Ausschalten gibt den Lock frei und beendet die
+Wiederanforderung. Browser und Betriebssystem können einen Lock trotzdem freigeben.
+
+Bei fehlender Unterstützung erscheint ein Hinweis auf die manuelle iOS-Einstellung
+**Einstellungen → Anzeige & Helligkeit → Automatische Sperre → Nie**.
+Die übrige App funktioniert weiterhin. Ein gesperrtes oder in den Hintergrund
+versetztes iPhone kann die BLE-Aufzeichnung unterbrechen; Wake Lock soll dieses
+Risiko während der aktiven Nutzung reduzieren, garantiert aber keinen Hintergrundbetrieb.
+Es entstehen keine zusätzlichen Netzwerkrequests oder Telemetriedaten.
+
+Tests ohne Hardware: `node tests/wakelock.cjs`; bestehende Messlogiktests:
+`node tests/highres.cjs`.
+
 ## GitHub Pages
 
 Im Repository unter **Settings → Pages → Deploy from a branch** den Branch **main** und **/(root)** auswählen. Anschließend ist die App unter `https://nobara84.github.io/appcon3000/` erreichbar, sofern Pages für dieses Repository aktiviert ist. Es ist kein Build-Schritt nötig. Ein Push allein aktiviert GitHub Pages nicht automatisch. HTTPS ist für Web Bluetooth erforderlich.
