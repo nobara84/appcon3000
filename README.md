@@ -1,4 +1,4 @@
-# APPCON3000 WebBLE · v0.3.1
+# APPCON3000 WebBLE · v0.3.2
 
 Deutschsprachige, mobile Web-App als Ersatz für die nicht mehr verfügbare iOS-App des NC-17 APPCON3000 Fahrraddynamo-/Ladesystems. Eine eigenständige `index.html` mit HTML, CSS und JavaScript; ohne Framework, Build, externe Bibliotheken, CDN, Tracker oder Analytics.
 
@@ -183,6 +183,13 @@ Sämtliche BLE-Daten bleiben lokal im Browser; **unsere App überträgt keine BL
 
 Dieser Changelog dokumentiert die Entwicklung unserer unabhängigen Web-App.
 Bei neuen Versionen soll er weitergeführt werden; die neueste Version steht oben.
+
+### v0.3.2
+
+- Kompakte BLE-Verbindungsanzeige
+- Verbindungsbutton wird nach erfolgreicher Verbindung ausgeblendet
+- Grüner Verbindungsstatus
+- Manueller Disconnect über kompakte Statusanzeige mit HTML-Bestätigung
 
 ### v0.3.1
 
