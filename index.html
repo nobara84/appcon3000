@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#101714">
+<title>APPCON3000 · Fahrradcomputer</title>
+<style>
+:root{color-scheme:dark;font-family:system-ui,-apple-system,sans-serif;background:#101714;color:#edf5ee;font-size:16px}*{box-sizing:border-box}body{margin:0}main{max-width:680px;margin:auto;padding:24px 18px calc(28px + env(safe-area-inset-bottom))}header{display:flex;justify-content:space-between;gap:16px;align-items:center}h1{font-size:1.3rem;letter-spacing:.04em;margin:0}p{line-height:1.5}.muted,small{color:#a8bbb0}small{font-size:.875rem}.status{margin:7px 0 0;font-size:.9rem}.version{border:1px solid #415448;border-radius:20px;padding:5px 10px;color:#b8ccbd;font-size:.875rem}button,input{font:inherit}button{min-height:48px;border:0;border-radius:12px;background:#c5f580;color:#14200b;padding:12px 18px;font-weight:650;cursor:pointer}button:disabled{opacity:.5;cursor:default}button.secondary{background:#2a3b30;color:#e3eee6;border:1px solid #4b6252}button:focus-visible,summary:focus-visible,input:focus-visible{outline:3px solid #c5f580;outline-offset:4px}#connect{width:100%;margin-top:22px}.message{font-size:.9rem;color:#f3ce93;white-space:pre-line}.message:empty{display:none}.speed{text-align:center;padding:28px 0 30px}.speed .number{font-size:clamp(5rem,22vw,8rem);font-weight:650;line-height:1.1;letter-spacing:-.055em;font-variant-numeric:tabular-nums;color:#c5f580}.speed p{margin:6px 0}.speed .muted{font-size:.875rem}.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.card{background:#1b2720;border:1px solid #34473a;border-radius:18px;padding:18px;min-width:0}.card h2{font-size:.875rem;font-weight:500;color:#b9cabc;margin:0 0 12px}.value{font-size:clamp(1.5rem,6vw,2rem);font-weight:650;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}.unit{font-size:1rem;color:#b9cabc;font-weight:400}.card p{margin:8px 0 0;font-size:.875rem}.wide{grid-column:1/-1}.battery-head{display:flex;justify-content:space-between;align-items:baseline;gap:12px}details{margin-top:16px;background:#17221b;border:1px solid #34473a;border-radius:16px;padding:18px}summary{cursor:pointer;font-weight:600;min-height:28px}dl{margin-bottom:0}dl div{display:flex;justify-content:space-between;gap:18px;border-top:1px solid #34473a;padding:12px 0;font-size:.9rem}dt{color:#b9cabc}dd{margin:0;text-align:right;font-variant-numeric:tabular-nums}label{display:block;margin:20px 0 8px}input{width:100%;min-height:48px;padding:12px;border-radius:10px;border:1px solid #536d5b;background:#101714;color:#edf5ee}form button{margin-top:16px;width:100%}#reset{margin-top:20px;width:100%}footer{text-align:center;font-size:.875rem;color:#a8bbb0;margin-top:28px} @media(max-width:350px){main{padding-inline:12px}.card{padding:13px}.grid{gap:8px}}@media(min-width:600px){main{padding-top:36px}}
+</style>
+</head>
+<body>
+<main>
+<header><div><h1>APPCON3000</h1><p id="status" class="status muted" role="status">Getrennt</p></div><span class="version">v0.1</span></header>
+<button id="connect" type="button">APPCON verbinden</button>
+<p id="message" class="message" role="status"></p><p id="storage-message" class="message" role="status"></p>
+<section class="speed" aria-label="Geschwindigkeit"><div class="number" id="speed">0,0</div><p>km/h</p><p class="muted">Vorläufig · Zeit zwischen Notifications</p></section>
+<section class="grid" aria-label="Fahrtdaten">
+<article class="card"><h2>Tageskilometer</h2><div class="value"><span id="trip">0,00</span> <span class="unit">km</span></div></article>
+<article class="card"><h2>Gesamtkilometer</h2><div class="value"><span id="odometer">0,00</span> <span class="unit">km</span></div></article>
+<article class="card wide"><h2>Akku</h2><div class="battery-head"><div class="value"><span id="soc">—</span> <span class="unit">%</span></div><span><span id="voltage">—</span> V</span></div><p class="muted"><span id="current">—</span> A · <span id="temperature">—</span> °C</p></article>
+<article class="card"><h2>Dynamo / Eingang</h2><div class="value"><span id="dynamo">—</span> <span class="unit">W</span></div></article>
+<article class="card"><h2>USB</h2><div class="value"><span id="usb">—</span> <span class="unit">W</span></div><p class="muted"><span id="vout">—</span> V / <span id="iout">—</span> A</p></article>
+</section>
+<details><summary>Details</summary><dl id="technical"></dl></details>
+<details><summary>Einstellungen</summary>
+<form id="wheel-form"><label for="circumference">Radumfang in Metern</label><input id="circumference" inputmode="decimal" required><label for="poles">Polzahl</label><input id="poles" inputmode="numeric" required><button class="secondary">Rad-Einstellungen speichern</button></form>
+<form id="odometer-form"><label for="odometer-start">Gesamtkilometer-Startwert in km</label><input id="odometer-start" inputmode="decimal" required><button class="secondary">Gesamtkilometer übernehmen</button></form>
+<button id="reset" type="button" class="secondary">Tageskilometer zurücksetzen</button><p class="muted"><small>Kilometerstände bleiben in diesem Browser gespeichert. Der Trip-Reset verändert die Gesamtkilometer nicht.</small></p>
+</details>
+<footer>Deine Fahrt. Deine Daten. Lokal im Browser.</footer>
+</main>
+<script>
+'use strict';
+// BLE: ausschließlich die im Projekt dokumentierten UUIDs und Bytefelder.
+const UUID = Object.freeze({service:'02ff807e-4061-11e3-91ea-ce3f5508acd9',csc:'02ff6850-4061-11e3-91ea-ce3f5508acd9',battery:'4d18361d-8bbf-401f-af6d-3f5983c794c1',charger:'5b0f15bb-1b3e-468a-9bde-2af899dfa512'});
+// TODO: Harvester 8a6faf4a-4069-11e3-91ea-ce3f5508acd9 erst nach Verifikation verwenden.
+const $ = id => document.getElementById(id);
+const format = (value, digits=2) => value == null ? '—' : value.toLocaleString('de-DE',{minimumFractionDigits:digits,maximumFractionDigits:digits});
+const put = (id, value, digits) => { $(id).textContent = format(value,digits); };
+
+// Persistenz: ungerundete Meter; keine Speicherung von BLE-Rohpaketen.
+const STORAGE_KEY = 'appcon3000.v1';
+const defaults = {circumference:2.149,poles:14,trip:0,odometer:0};
+const nonnegative = n => Number.isFinite(n) && n >= 0;
+function loadState(){
+  try {
+    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+    return {circumference:Number.isFinite(saved.circumference) && saved.circumference>0 ? saved.circumference : defaults.circumference,poles:Number.isSafeInteger(saved.poles) && saved.poles>0 ? saved.poles : defaults.poles,trip:nonnegative(saved.trip)?saved.trip:0,odometer:nonnegative(saved.odometer)?saved.odometer:0};
+  } catch(error){ console.debug('Persistenz lesen',error); $('storage-message').textContent='Gespeicherte Werte konnten nicht geladen werden. Es gelten zunächst die Standardwerte.'; return {...defaults}; }
+}
+const state = loadState();
+function saveState(){
+  try {localStorage.setItem(STORAGE_KEY,JSON.stringify(state)); $('storage-message').textContent='';}
+  catch(error){console.debug('Persistenz schreiben',error);$('storage-message').textContent='Speichern im Browser ist nicht möglich. Kilometerstände können beim Schließen verloren gehen.';}
+}
+
+// Decoder: Mindestlängen prüfen; zusätzliche Bytes werden nicht interpretiert.
+function requireLength(view,length){if(!(view instanceof DataView) || view.byteLength<length) throw new Error(`BLE-Paket zu kurz (erwartet: mindestens ${length} Byte).`);}
+function decodeBattery(view){
+  requireLength(view,16);
+  return {voltage:view.getUint16(0,true)/1000,current:view.getInt16(2,true)/1000,soc:view.getUint16(4,true),maxCurrent:view.getUint16(6,true)/1000,temperature:view.getUint16(8,true)/10-273.15,health:view.getUint16(10,true),capacity:view.getUint16(12,true)/1000,cycles:view.getUint16(14,true)};
+}
+function decodeCharger(view){
+  requireLength(view,18);
+  // TODO: Byte 15 und Bedeutungen von State/Flags verifizieren. MPP/PeakPeak ohne Einheit.
+  return {vbus:view.getUint16(0,true)/1000,ibus:view.getUint16(2,true)/1000,vout:view.getUint16(4,true)/1000,iout:view.getUint16(6,true)/1000,vrect:view.getUint16(8,true)/1000,rectPower:view.getUint16(10,true)/1000,mpp:view.getUint16(12,true)/1000,peakPeak:view.getUint8(14)/2.5,chargerState:view.getUint8(16),flags:view.getUint8(17)};
+}
+function decodePulses(view){requireLength(view,4);return view.getUint32(0,true);}
+function debugPacket(label,view,decoded){console.debug(label,Array.from(new Uint8Array(view.buffer,view.byteOffset,view.byteLength),n=>n.toString(16).padStart(2,'0')).join(' '),decoded);}
+function decoderSelfTest(){
+  // Realmessung: 3.910 V, -0.010 A, 71 %, 3.350 A, 19.35 °C, 100 %, 3.407 Ah, 4 Zyklen.
+  const view = hex => new DataView(Uint8Array.from(hex.split(' '),n=>parseInt(n,16)).buffer);
+  const b=decodeBattery(view('46 0f f6 ff 47 00 16 0d 6d 0b 64 00 4f 0d 04 00'));
+  const expected={voltage:3.910,current:-0.010,soc:71,maxCurrent:3.350,temperature:19.35,health:100,capacity:3.407,cycles:4};
+  for(const key of Object.keys(expected)) if(Math.abs(b[key]-expected[key])>1e-9) throw new Error('Battery-Selbsttest: '+key);
+  const c=decodeCharger(view('0a 00 09 00 2e 13 0b 00 00 00 22 02 40 1f 2c 2c 02 19'));
+  const chargerExpected={vbus:.010,ibus:.009,vout:4.910,iout:.011,vrect:0,rectPower:.546,mpp:8,peakPeak:17.6,chargerState:2,flags:25};
+  for(const key of Object.keys(chargerExpected)) if(Math.abs(c[key]-chargerExpected[key])>1e-9) throw new Error('Charger-Selbsttest: '+key);
+  if(Math.abs(c.vout*c.iout-.05401)>1e-9) throw new Error('USB-Selbsttest');
+  console.debug('Decoder-Selbsttest erfolgreich');
+}
+
+// Distanz/Geschwindigkeit: austauschbare Zeitquelle, keine Deutung unbekannter CSC-Bytes.
+// TODO: Original APPCON high-resolution timestamp decoder implementieren.
+const notificationClock = {now:(_view) => performance.now()};
+const STOP_AFTER_MS = 4000; // UI-Fallback-Heuristik, kein Geräteprotokollwert.
+let previousSample=null,lastPulseAt=null,speed=0;
+function resetMotion(){previousSample=null;lastPulseAt=null;speed=0;put('speed',speed,1);}
+function processPulses(counter,time){
+  const previous=previousSample;
+  previousSample={counter,time}; // Auch bei Geräte-Reset/ungültigem Sprung neu aufsetzen.
+  if(!previous) return;
+  const elapsed=time-previous.time;
+  const delta=(counter-previous.counter+0x100000000)%0x100000000;
+  if(delta===0) return;
+  const distance=delta*state.circumference/state.poles;
+  const candidate=distance/(elapsed/1000)*3.6;
+  // > halber uint32-Bereich gilt als Rücksprung, nicht als gültiger Rollover.
+  if(elapsed<=0 || delta>0x7fffffff || !Number.isFinite(candidate) || candidate>100){console.debug('CSC unplausibles Delta ignoriert',{delta,elapsed,candidate});speed=0;put('speed',speed,1);return;}
+  if(!Number.isFinite(state.trip+distance) || !Number.isFinite(state.odometer+distance)) return;
+  state.trip+=distance;state.odometer+=distance;speed=candidate;lastPulseAt=time;
+  saveState();renderDistance();put('speed',speed,1);
+}
+setInterval(()=>{if(lastPulseAt!==null && performance.now()-lastPulseAt>STOP_AFTER_MS){speed=0;put('speed',0,1);}},500);
+
+// UI: fehlende oder fehlgeschlagene Messungen als Strich statt als vermeintliche Null.
+let battery=null,charger=null;
+function renderDistance(){put('trip',state.trip/1000,2);put('odometer',state.odometer/1000,2);}
+function renderTelemetry(){
+  put('soc',battery?.soc,0);put('voltage',battery?.voltage,3);put('current',battery?.current,3);put('temperature',battery?.temperature,2);
+  put('dynamo',charger?.rectPower,2);put('usb',charger ? charger.vout*charger.iout : null,2);put('vout',charger?.vout,2);put('iout',charger?.iout,3);
+  const rows=[['Batteriestrom',battery?.current,3,'A'],['Temperatur',battery?.temperature,2,'°C'],['State of Health',battery?.health,0,'%'],['Kapazität',battery?.capacity,3,'Ah'],['Ladezyklen',battery?.cycles,0,''],['Maximaler Ladestrom',battery?.maxCurrent,3,'A'],['VBus',charger?.vbus,3,'V'],['IBus',charger?.ibus,3,'A'],['VRectPeak',charger?.vrect,3,'V'],['ChargerMPP',charger?.mpp,3,''],['DynamoPeakPeak',charger?.peakPeak,1,''],['Charger State (roh)',charger?.chargerState,0,''],['Status Flags (roh)',charger?.flags,0,'']];
+  $('technical').replaceChildren(...rows.map(([label,value,digits,unit])=>{const row=document.createElement('div'),dt=document.createElement('dt'),dd=document.createElement('dd');dt.textContent=label;dd.textContent=format(value,digits)+(unit?' '+unit:'');row.append(dt,dd);return row;}));
+}
+function parseInput(id){const input=$(id).value.trim().replace(',','.');return input===''?NaN:Number(input);}
+$('wheel-form').addEventListener('submit',event=>{
+  event.preventDefault();const circumference=parseInput('circumference'),poles=parseInput('poles');
+  if(!Number.isFinite(circumference)||circumference<=0||!Number.isSafeInteger(poles)||poles<=0){$('message').textContent='Bitte einen positiven Radumfang und eine positive ganze Polzahl eingeben.';return;}
+  state.circumference=circumference;state.poles=poles;resetMotion();saveState();$('message').textContent='Rad-Einstellungen gespeichert.';
+});
+$('odometer-form').addEventListener('submit',event=>{
+  event.preventDefault();const km=parseInput('odometer-start');
+  if(!nonnegative(km)||!Number.isFinite(km*1000)){$('message').textContent='Bitte einen gültigen Kilometerstand ab 0 eingeben.';return;}
+  if(!confirm(`Gesamtkilometer wirklich auf ${format(km,3)} km setzen?`))return;
+  state.odometer=km*1000;saveState();renderDistance();$('message').textContent='Gesamtkilometer übernommen.';
+});
+$('reset').addEventListener('click',()=>{if(confirm('Tageskilometer wirklich auf 0 zurücksetzen? Die Gesamtkilometer bleiben erhalten.')){state.trip=0;saveState();renderDistance();}});
+
+// BLE-Verbindung und Polling: eine Sitzung; Reads strikt nacheinander, nächster Poll erst nach Ende.
+let session=null,connecting=false;
+function friendlyError(error){
+  console.debug('BLE-Fehler',error);
+  if(error.name==='NotFoundError')return 'Kein passendes Gerät ausgewählt oder benötigter BLE-Dienst nicht gefunden. APPCON3000 einschalten und erneut versuchen.';
+  if(error.name==='SecurityError'||error.name==='NotAllowedError')return 'Bluetooth-Zugriff nicht erlaubt. Bitte HTTPS und die Bluetooth-Berechtigung in WebBLE prüfen.';
+  if(error.name==='NetworkError')return 'Bluetooth-Verbindung fehlgeschlagen. Bitte näher an das APPCON3000 gehen und erneut verbinden.';
+  return 'APPCON3000 konnte nicht gelesen werden. Bitte Verbindung und Gerätekompatibilität prüfen.';
+}
+function cleanup(s){
+  if(session!==s)return;
+  session=null;clearTimeout(s.timer);
+  s.csc?.removeEventListener('characteristicvaluechanged',s.onData);
+  s.device.removeEventListener('gattserverdisconnected',s.onDisconnect);
+  if(s.device.gatt.connected)s.device.gatt.disconnect();
+  resetMotion();battery=null;charger=null;renderTelemetry();$('status').textContent='Getrennt';$('connect').textContent='APPCON verbinden';
+}
+async function poll(s){
+  if(session!==s||!s.device.gatt.connected)return;
+  const failures=[];
+  for(const key of ['battery','charger']){
+    if(session!==s)return;
+    try{
+      const view=await s[key].readValue();
+      if(session!==s)return;
+      const decoded=key==='battery'?decodeBattery(view):decodeCharger(view);debugPacket(key,view,decoded);
+      if(key==='battery')battery=decoded;else charger=decoded;
+    }catch(error){
+      if(session!==s)return;
+      console.debug('Poll fehlgeschlagen: '+key,error);failures.push(key==='battery'?'Akku':'Lader');
+      if(key==='battery')battery=null;else charger=null;
+    }
+  }
+  if(session!==s)return;
+  renderTelemetry();$('message').textContent=failures.length?`${failures.join(' / ')} momentan nicht lesbar. Neuer Versuch folgt automatisch.`:'';
+  s.timer=setTimeout(()=>poll(s),1000);
+}
+async function connect(){
+  if(connecting)return;
+  if(session){cleanup(session);$('message').textContent='Verbindung getrennt.';return;}
+  connecting=true;$('connect').disabled=true;$('status').textContent='Verbindung wird aufgebaut …';$('message').textContent='';
+  let s;
+  try{
+    const device=await navigator.bluetooth.requestDevice({filters:[{name:'APPCON3000'}],optionalServices:[UUID.service]});
+    s={device,timer:null};session=s;
+    s.onDisconnect=()=>{if(session===s){cleanup(s);$('message').textContent='Bluetooth-Verbindung getrennt. Kilometerstände bleiben erhalten.';}};
+    device.addEventListener('gattserverdisconnected',s.onDisconnect);
+    const server=await device.gatt.connect();
+    const service=await server.getPrimaryService(UUID.service);
+    // GATT-Operationen auch beim Setup serialisieren.
+    s.csc=await service.getCharacteristic(UUID.csc);
+    s.battery=await service.getCharacteristic(UUID.battery);
+    s.charger=await service.getCharacteristic(UUID.charger);
+    if(session!==s)return;
+    resetMotion();
+    s.onData=event=>{if(session!==s)return;try{const view=event.target.value,counter=decodePulses(view);debugPacket('CSC',view,{counter});processPulses(counter,notificationClock.now(view));}catch(error){console.debug('CSC-Paket verworfen',error);}};
+    s.csc.addEventListener('characteristicvaluechanged',s.onData);
+    await s.csc.startNotifications();
+    if(session!==s)return;
+    $('status').textContent='Verbunden · APPCON3000';$('connect').textContent='Verbindung trennen';
+    void poll(s);
+  }catch(error){if(s)cleanup(s);$('status').textContent='Getrennt';$('message').textContent=friendlyError(error);}
+  finally{connecting=false;$('connect').disabled=false;}
+}
+$('connect').addEventListener('click',connect);
+window.addEventListener('pagehide',()=>{saveState();if(session)cleanup(session);});
+// Nach Hintergrundpausen keine zurückliegenden Pulse als präzise Fahrtmessung ausgeben.
+document.addEventListener('visibilitychange',()=>{resetMotion();if(document.hidden)saveState();});
+$('circumference').value=String(state.circumference).replace('.',',');$('poles').value=state.poles;$('odometer-start').value=String(state.odometer/1000).replace('.',',');
+renderDistance();renderTelemetry();
+if(!navigator.bluetooth){$('message').textContent='Web Bluetooth ist in diesem Browser nicht verfügbar. Bitte die Seite in WebBLE öffnen.';$('connect').disabled=true;}
+try{decoderSelfTest();}catch(error){console.error(error);$('message').textContent='Interner Decoder-Test fehlgeschlagen. Verbindung aus Sicherheitsgründen deaktiviert.';$('connect').disabled=true;}
+</script>
+</body>
+</html>
