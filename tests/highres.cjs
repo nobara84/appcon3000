@@ -35,6 +35,8 @@ const context = vm.createContext({DataView, Uint8Array, console:{debug(){}, erro
   setInterval:callback=>{watchdog=callback;},setTimeout(){},clearTimeout(){}});
 const run = source => vm.runInContext(source,context);
 run(html.match(/<script>([\s\S]*?)<\/script>/)[1]);
+// Historical measurements deliberately use their fixed calibration, not the app default.
+run('state.circumference=2.149;state.poles=14;');
 const near = (actual,expected) => assert(Math.abs(actual-expected)<1e-9,`${actual} != ${expected}`);
 function decode(hex) {
   const buffer=Buffer.from(hex.replaceAll(' ',''),'hex');
@@ -97,7 +99,7 @@ reset();run('state.circumference=2;state.poles=10;');
 feed({counter:0,poleTime:0},0);feed({counter:5,poleTime:32768},1000);
 near(run('state.trip'),1);near(run('speed'),32786/32768*3.6);
 // Trip reset preserves odometer.
-const odometer=run('state.odometer');node('reset').handlers.click();assert.equal(run('state.trip'),0);assert.equal(run('state.odometer'),odometer);
+const odometer=run('state.odometer');node('reset').handlers.click();node('distance-apply').handlers.click();assert.equal(run('state.trip'),0);assert.equal(run('state.odometer'),odometer);
 console.log('PASS: 16 real packets, independent Q32.32 decode, original smoothing/formula, arrival jitter, persistence, duplicates, watchdog, short packets, counter/timestamp rollover, reset recovery, >100 km/h rejection, 256-point cap, wheel configuration, battery/charger regression.');
 console.log('km/h per packet (first is baseline): '+speeds.map(n=>n.toFixed(6)).join(', '));
 console.log('Total: 87 pulses = '+(87*2.149/14).toFixed(9)+' m');

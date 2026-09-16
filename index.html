@@ -13,7 +13,7 @@
 </head>
 <body>
 <main>
-<header><div><h1>APPCON3000</h1><p id="status" class="status muted" role="status">Getrennt</p></div><span class="version">v0.3</span></header>
+<header><div><h1>APPCON3000</h1><p id="status" class="status muted" role="status">Getrennt</p></div><span class="version">v0.3.1</span></header>
 <button id="connect" type="button">APPCON verbinden</button>
 <p id="message" class="message" role="status"></p><p id="storage-message" class="message" role="status"></p>
 <section class="speed" aria-label="Geschwindigkeit"><div class="number" id="speed">0,0</div><p>km/h</p><p class="muted">APPCON High-Resolution</p></section>
@@ -31,8 +31,13 @@
 <p id="wake-storage" class="message" role="status"></p>
 <button id="wake-retry" type="button" class="secondary" hidden>Jetzt aktivieren</button>
 <form id="wheel-form"><label for="circumference">Radumfang in Metern</label><input id="circumference" inputmode="decimal" required><label for="poles">Polzahl</label><input id="poles" inputmode="numeric" required><button class="secondary">Rad-Einstellungen speichern</button></form>
-<form id="odometer-form"><label for="odometer-start">Gesamtkilometer-Startwert in km</label><input id="odometer-start" inputmode="decimal" required><button class="secondary">Gesamtkilometer übernehmen</button></form>
+<form id="odometer-form"><label for="odometer-start">Gesamtkilometer-Startwert in km</label><input id="odometer-start" inputmode="decimal" required><button type="submit" class="secondary">Gesamtkilometer übernehmen</button></form>
 <button id="reset" type="button" class="secondary">Tageskilometer zurücksetzen</button><p class="muted"><small>Kilometerstände bleiben in diesem Browser gespeichert. Der Trip-Reset verändert die Gesamtkilometer nicht.</small></p>
+<div id="distance-confirmation" class="card" role="group" aria-labelledby="distance-question" hidden>
+<p id="distance-question"></p>
+<button id="distance-apply" type="button">Bestätigen</button>
+<button id="distance-cancel" type="button" class="secondary">Abbrechen</button>
+</div>
 </details>
 <footer>Deine Fahrt. Deine Daten. Lokal im Browser.</footer>
 </main>
@@ -47,7 +52,7 @@ const put = (id, value, digits) => { $(id).textContent = format(value,digits); }
 
 // Persistenz: ungerundete Meter; keine Speicherung von BLE-Rohpaketen.
 const STORAGE_KEY = 'appcon3000.v1';
-const defaults = {circumference:2.149,poles:14,trip:0,odometer:0};
+const defaults = {circumference:2.200,poles:14,trip:0,odometer:0};
 const nonnegative = n => Number.isFinite(n) && n >= 0;
 function loadState(){
   try {
@@ -147,7 +152,11 @@ setInterval(()=>{if(lastPulseAt!==null && performance.now()-lastPulseAt>STOP_AFT
 
 // UI: fehlende oder fehlgeschlagene Messungen als Strich statt als vermeintliche Null.
 let battery=null,charger=null;
-function renderDistance(){put('trip',state.trip/1000,2);put('odometer',state.odometer/1000,2);}
+function renderDistance(){
+  for(const id of ['trip','odometer'])$(id).textContent=(state[id]/1000).toLocaleString('de-DE',{
+    minimumFractionDigits:2,maximumFractionDigits:2,useGrouping:false
+  });
+}
 function renderTelemetry(){
   put('soc',battery?.soc,0);put('voltage',battery?.voltage,3);put('current',battery?.current,3);put('temperature',battery?.temperature,2);
   put('dynamo',charger?.rectPower,2);put('usb',charger ? charger.vout*charger.iout : null,2);put('vout',charger?.vout,2);put('iout',charger?.iout,3);
@@ -160,13 +169,35 @@ $('wheel-form').addEventListener('submit',event=>{
   if(!Number.isFinite(circumference)||circumference<=0||!Number.isSafeInteger(poles)||poles<=0){$('message').textContent='Bitte einen positiven Radumfang und eine positive ganze Polzahl eingeben.';return;}
   state.circumference=circumference;state.poles=poles;resetMotion();saveState();$('message').textContent='Rad-Einstellungen gespeichert.';
 });
-$('odometer-form').addEventListener('submit',event=>{
-  event.preventDefault();const km=parseInput('odometer-start');
-  if(!nonnegative(km)||!Number.isFinite(km*1000)){$('message').textContent='Bitte einen gültigen Kilometerstand ab 0 eingeben.';return;}
-  if(!confirm(`Gesamtkilometer wirklich auf ${format(km,3)} km setzen?`))return;
-  state.odometer=km*1000;saveState();renderDistance();$('message').textContent='Gesamtkilometer übernommen.';
+// In-page confirmation: no dependency on native confirmation dialogs in embedded browsers.
+let pendingDistanceAction=null;
+function cancelDistanceAction(){pendingDistanceAction=null;$('distance-confirmation').hidden=true;}
+function askDistanceAction(question,action){
+  pendingDistanceAction=action;$('distance-question').textContent=question;
+  $('distance-confirmation').hidden=false;
+}
+$('distance-cancel').addEventListener('click',cancelDistanceAction);
+$('distance-apply').addEventListener('click',()=>{
+  const action=pendingDistanceAction;
+  cancelDistanceAction(); // Consume once, including on double taps.
+  if(action)action();
 });
-$('reset').addEventListener('click',()=>{if(confirm('Tageskilometer wirklich auf 0 zurücksetzen? Die Gesamtkilometer bleiben erhalten.')){state.trip=0;saveState();renderDistance();}});
+$('odometer-start').addEventListener('input',cancelDistanceAction);
+$('odometer-form').addEventListener('submit',event=>{
+  event.preventDefault();cancelDistanceAction();
+  const text=$('odometer-start').value.trim();
+  // Decimal comma OR decimal point; no thousands separators, exponent or hex syntax.
+  const km=/^(?:[0-9]+(?:[.,][0-9]+)?|[.,][0-9]+)$/.test(text)?Number(text.replace(',','.')):NaN;
+  if(!nonnegative(km)||!Number.isFinite(km*1000)){$('message').textContent='Bitte einen gültigen Kilometerstand ab 0 eingeben (z. B. 1234,5 oder 1234.5).';return;}
+  askDistanceAction(`Gesamtkilometer wirklich auf ${text} km setzen?`,()=>{
+    state.odometer=km*1000;saveState();renderDistance();$('message').textContent='Gesamtkilometer übernommen.';
+  });
+});
+$('reset').addEventListener('click',()=>{
+  askDistanceAction('Tageskilometer wirklich auf 0 zurücksetzen? Die Gesamtkilometer bleiben erhalten.',()=>{
+    state.trip=0;saveState();renderDistance();$('message').textContent='Tageskilometer zurückgesetzt.';
+  });
+});
 
 // BLE-Verbindung und Polling: eine Sitzung; Reads strikt nacheinander, nächster Poll erst nach Ende.
 let session=null,connecting=false;

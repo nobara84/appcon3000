@@ -1,4 +1,4 @@
-# APPCON3000 WebBLE · v0.3
+# APPCON3000 WebBLE · v0.3.1
 
 Deutschsprachige, mobile Web-App als Ersatz für die nicht mehr verfügbare iOS-App des NC-17 APPCON3000 Fahrraddynamo-/Ladesystems. Eine eigenständige `index.html` mit HTML, CSS und JavaScript; ohne Framework, Build, externe Bibliotheken, CDN, Tracker oder Analytics.
 
@@ -8,10 +8,22 @@ Dieses Projekt ist eine unabhängige, inoffizielle Implementierung zur Interoper
 
 1. Die HTTPS-Seite in **WebBLE** öffnen und Bluetooth aktivieren.
 2. APPCON3000 einschalten, **APPCON verbinden** antippen und das Gerät auswählen. Bluetooth-Zugriff erlauben.
-3. Radumfang und Polzahl in den Einstellungen prüfen (Standard: 2,149 m / 14).
+3. Radumfang und Polzahl in den Einstellungen prüfen (Standard: 2,200 m / 14).
 4. Bei Bedarf den bisherigen Gesamtkilometerstand übernehmen; die Änderung verlangt eine Sicherheitsabfrage.
 
 Ohne `navigator.bluetooth` zeigt die App den Hinweis, die Seite in WebBLE zu öffnen. Die tatsächliche Kompatibilität mit Gerät und WebBLE muss noch auf einem iPhone geprüft werden. Hintergrundbetrieb und Bildschirm-Sperre können die Messung unterbrechen. Während einer Trennung oder Hintergrundpause ist keine vollständige Streckenerfassung gewährleistet. Nach Verbindungsaufbau bzw. Sichtbarkeitswechsel dient das erste CSC-Paket als neue Basis.
+
+Der Standard-Radumfang von **2.200 m** (Polzahl **14**) ist ein Näherungswert für
+den aktuell montierten Reifen **40-622 / 28 × 1.50 / 700 × 38C**. Eine reale
+Abrollmessung ist genauer; der Radumfang bleibt frei einstellbar. Gespeicherte
+Benutzerwerte, auch 2.149 m, werden nicht automatisch verändert. Auf dem bisher
+verwendeten Gerät kann 2,200 m einmal manuell eingetragen und gespeichert werden.
+
+Gesamtkilometer akzeptieren Dezimalkomma und Dezimalpunkt (z. B. `1234,5` oder
+`1234.5`), ohne Tausendertrennzeichen. Übernahme und Trip-Reset zeigen eine
+Bestätigung direkt innerhalb der Seite: **Bestätigen** oder **Abbrechen**.
+Es wird kein Browser-Systemdialog benötigt. Nach Bestätigung werden die Werte
+sofort gespeichert und angezeigt; beim Trip-Reset bleiben die Gesamtkilometer erhalten.
 
 ## Bildschirm eingeschaltet lassen
 
@@ -36,7 +48,7 @@ Risiko während der aktiven Nutzung reduzieren, garantiert aber keinen Hintergru
 Es entstehen keine zusätzlichen Netzwerkrequests oder Telemetriedaten.
 
 Tests ohne Hardware: `node tests/wakelock.cjs`; bestehende Messlogiktests:
-`node tests/highres.cjs`.
+`node tests/highres.cjs`. Einstellungen und Kilometerstände: `node tests/distance.cjs`.
 
 ## GitHub Pages
 
@@ -141,7 +153,7 @@ Disconnect, Sichtbarkeitswechsel und Änderung der Radparameter löschen die Mes
 
 Die Distanz bleibt unabhängig vom Glättungsfenster:
 `distanceMeters = adjacentPulseDelta * wheelCircumference / wheelPoleCount`.
-Radumfang (Default 2,149 m) und Polzahl (Default 14) bleiben konfigurierbar.
+Radumfang (Default 2,200 m) und Polzahl (Default 14) bleiben konfigurierbar.
 
 Lokale Regressionstests: `node tests/highres.cjs`. Sie enthalten alle 16 bereitgestellten
 selbst aufgezeichneten BLE-Testpakete sowie Rollover-, Reset-, Glättungs-, Längen- und Watchdog-Prüfungen.
@@ -171,6 +183,15 @@ Sämtliche BLE-Daten bleiben lokal im Browser; **unsere App überträgt keine BL
 
 Dieser Changelog dokumentiert die Entwicklung unserer unabhängigen Web-App.
 Bei neuen Versionen soll er weitergeführt werden; die neueste Version steht oben.
+
+### v0.3.1
+
+- Gesamtkilometer-Eingabe unter iPhone/WebBLE repariert: Bestätigung innerhalb der Seite statt Browser-Systemdialog
+- Tageskilometer-Reset unter iPhone/WebBLE repariert
+- Dezimalkomma und Dezimalpunkt bei Kilometer-Eingaben unterstützt
+- Distanzanzeigen werden nach Änderungen unmittelbar aktualisiert
+- Standard-Radumfang für den aktuell verwendeten Reifen 40-622 auf 2.200 m angepasst
+- Bestehende gespeicherte Radumfangswerte werden nicht automatisch verändert
 
 ### v0.3
 
