@@ -14,7 +14,7 @@
 <header><div><h1>APPCON3000</h1><p id="status" class="status muted" role="status">Getrennt</p></div><span class="version">v0.1</span></header>
 <button id="connect" type="button">APPCON verbinden</button>
 <p id="message" class="message" role="status"></p><p id="storage-message" class="message" role="status"></p>
-<section class="speed" aria-label="Geschwindigkeit"><div class="number" id="speed">0,0</div><p>km/h</p><p class="muted">Vorläufig · Zeit zwischen Notifications</p></section>
+<section class="speed" aria-label="Geschwindigkeit"><div class="number" id="speed">0,0</div><p>km/h</p><p class="muted">APPCON High-Resolution</p></section>
 <section class="grid" aria-label="Fahrtdaten">
 <article class="card"><h2>Tageskilometer</h2><div class="value"><span id="trip">0,00</span> <span class="unit">km</span></div></article>
 <article class="card"><h2>Gesamtkilometer</h2><div class="value"><span id="odometer">0,00</span> <span class="unit">km</span></div></article>
@@ -66,7 +66,15 @@ function decodeCharger(view){
   // TODO: Byte 15 und Bedeutungen von State/Flags verifizieren. MPP/PeakPeak ohne Einheit.
   return {vbus:view.getUint16(0,true)/1000,ibus:view.getUint16(2,true)/1000,vout:view.getUint16(4,true)/1000,iout:view.getUint16(6,true)/1000,vrect:view.getUint16(8,true)/1000,rectPower:view.getUint16(10,true)/1000,mpp:view.getUint16(12,true)/1000,peakPeak:view.getUint8(14)/2.5,chargerState:view.getUint8(16),flags:view.getUint8(17)};
 }
-function decodePulses(view){requireLength(view,4);return view.getUint32(0,true);}
+// BtAPPCON3000.java:190–198 overrides the generic BtDynamoHarvester decoder.
+// Two LE uint32 words: fraction at 4 / 2^32 + whole seconds at 8 (Q32.32 seconds).
+// Original Java: (long)((unsignedHigh + unsignedLow / 4294967296.0) * 32768).
+// Keep the original double arithmetic and truncation; never coerce uint32 to signed int.
+function decodeHighRes(view){
+  requireLength(view,18); // Same minimum as the original; trailing bytes remain uninterpreted.
+  return {counter:view.getUint32(0,true),poleTime:Math.trunc(
+    (view.getUint32(8,true)+view.getUint32(4,true)/4294967296)*32768)};
+}
 function debugPacket(label,view,decoded){console.debug(label,Array.from(new Uint8Array(view.buffer,view.byteOffset,view.byteLength),n=>n.toString(16).padStart(2,'0')).join(' '),decoded);}
 function decoderSelfTest(){
   // Realmessung: 3.910 V, -0.010 A, 71 %, 3.350 A, 19.35 °C, 100 %, 3.407 Ah, 4 Zyklen.
@@ -81,26 +89,55 @@ function decoderSelfTest(){
   console.debug('Decoder-Selbsttest erfolgreich');
 }
 
-// Distanz/Geschwindigkeit: austauschbare Zeitquelle, keine Deutung unbekannter CSC-Bytes.
-// TODO: Original APPCON high-resolution timestamp decoder implementieren.
-const notificationClock = {now:(_view) => performance.now()};
-const STOP_AFTER_MS = 4000; // UI-Fallback-Heuristik, kein Geräteprotokollwert.
-let previousSample=null,lastPulseAt=null,speed=0;
-function resetMotion(){previousSample=null;lastPulseAt=null;speed=0;put('speed',speed,1);}
-function processPulses(counter,time){
+// Distanz/Geschwindigkeit — sources/de/thomastreyer/beonbike/model/:
+// BobSegment.java:440–482 keeps 256 points and searches backwards for >=16393 ticks.
+// Its speed multiplier is literally 32786, NOT the decoder's 32768 ticks/second.
+// Preserve this original discrepancy (~0.055%); its physical justification is unknown.
+// v[km/h] = deltaPoles / deltaPoleTime * circumference / poles * 32786 * 3.6.
+// The Android receive-time throttle (>200 ms) is intentionally omitted: every valid
+// notification contributes distance; receive timing never supplies speed.
+const SPEED_TICK_FACTOR = 32786;
+const SPEED_WINDOW_TICKS = 16393;
+const POLE_TIME_MODULUS = 2 ** 47; // Q32.32 seconds converted to 2^15 ticks/second.
+const STOP_AFTER_MS = 4000; // Browser watchdog only, not a device-time speed source.
+let previousSample=null,lastPulseAt=null,speed=0,motionHistory=[];
+function resetMotion(){previousSample=null;lastPulseAt=null;motionHistory=[];speed=0;put('speed',0,1);}
+function rebaseMotion(sample){
+  previousSample=sample;motionHistory=[{pulses:0,ticks:0}];speed=0;put('speed',0,1);
+}
+function processPulses(sample,receivedAt){
   const previous=previousSample;
-  previousSample={counter,time}; // Auch bei Geräte-Reset/ungültigem Sprung neu aufsetzen.
-  if(!previous) return;
-  const elapsed=time-previous.time;
-  const delta=(counter-previous.counter+0x100000000)%0x100000000;
-  if(delta===0) return;
+  if(!previous){rebaseMotion(sample);return;}
+  const delta=(sample.counter-previous.counter+2**32)%2**32;
+  // Original uses Java int subtraction (wraps for small forward pulse deltas),
+  // but has no explicit timestamp rollover/reset guard. These guards are app additions:
+  // modulo 2^47 ticks handles seconds-word wrap; >half range means backward/reset.
+  const ticks=(sample.poleTime-previous.poleTime+POLE_TIME_MODULUS)%POLE_TIME_MODULUS;
+  if(delta===0 && ticks===0)return; // Duplicate: do not refresh the no-pulse watchdog.
+  if(delta>0x7fffffff || ticks<=0 || ticks>=POLE_TIME_MODULUS/2){
+    console.debug('CSC counter/time reset or invalid delta',{delta,ticks});rebaseMotion(sample);return;
+  }
   const distance=delta*state.circumference/state.poles;
-  const candidate=distance/(elapsed/1000)*3.6;
-  // > halber uint32-Bereich gilt als Rücksprung, nicht als gültiger Rollover.
-  if(elapsed<=0 || delta>0x7fffffff || !Number.isFinite(candidate) || candidate>100){console.debug('CSC unplausibles Delta ignoriert',{delta,elapsed,candidate});speed=0;put('speed',speed,1);return;}
-  if(!Number.isFinite(state.trip+distance) || !Number.isFinite(state.odometer+distance)) return;
-  state.trip+=distance;state.odometer+=distance;speed=candidate;lastPulseAt=time;
-  saveState();renderDistance();put('speed',speed,1);
+  const instantaneous=distance/ticks*SPEED_TICK_FACTOR*3.6;
+  if(!Number.isFinite(instantaneous)||instantaneous>100){
+    console.debug('CSC unplausibles Delta ignoriert',{delta,ticks,instantaneous});rebaseMotion(sample);return;
+  }
+  const last=motionHistory[motionHistory.length-1];
+  const current={pulses:last.pulses+delta,ticks:last.ticks+ticks};
+  if(motionHistory.length>=256)motionHistory.shift();
+  motionHistory.push(current);
+  let index=motionHistory.length-2;
+  while(index>0 && current.ticks-motionHistory[index].ticks<SPEED_WINDOW_TICKS)index--;
+  const base=motionHistory[index];
+  const candidate=(current.pulses-base.pulses)/(current.ticks-base.ticks)
+    *state.circumference/state.poles*SPEED_TICK_FACTOR*3.6;
+  if(!Number.isFinite(candidate)||candidate>100){rebaseMotion(sample);return;}
+  previousSample=sample;
+  // Distance always uses the adjacent counter delta, never the smoothing window.
+  if(!Number.isFinite(state.trip+distance)||!Number.isFinite(state.odometer+distance))return;
+  if(delta>0){state.trip+=distance;state.odometer+=distance;lastPulseAt=receivedAt;saveState();renderDistance();}
+  speed=lastPulseAt!==null && receivedAt-lastPulseAt<=STOP_AFTER_MS?candidate:0;
+  put('speed',speed,1);
 }
 setInterval(()=>{if(lastPulseAt!==null && performance.now()-lastPulseAt>STOP_AFTER_MS){speed=0;put('speed',0,1);}},500);
 
@@ -182,7 +219,7 @@ async function connect(){
     s.charger=await service.getCharacteristic(UUID.charger);
     if(session!==s)return;
     resetMotion();
-    s.onData=event=>{if(session!==s)return;try{const view=event.target.value,counter=decodePulses(view);debugPacket('CSC',view,{counter});processPulses(counter,notificationClock.now(view));}catch(error){console.debug('CSC-Paket verworfen',error);}};
+    s.onData=event=>{if(session!==s)return;try{const view=event.target.value,sample=decodeHighRes(view);debugPacket('CSC',view,sample);processPulses(sample,performance.now());}catch(error){console.debug('CSC-Paket verworfen',error);}};
     s.csc.addEventListener('characteristicvaluechanged',s.onData);
     await s.csc.startNotifications();
     if(session!==s)return;

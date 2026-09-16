@@ -61,11 +61,78 @@ Der interne Selbsttest nutzt `46 0f f6 ff 47 00 16 0d 6d 0b 64 00 4f 0d 04 00`: 
 
 USB-Ausgangsleistung = VOut × IOut. Der interne Selbsttest nutzt `0a 00 09 00 2e 13 0b 00 00 00 22 02 40 1f 2c 2c 02 19`: u. a. 4,910 V × 0,011 A = 0,05401 W, RectPower 0,546 W, MPP 8,000, DynamoPeakPeak 17,6.
 
-**High Resolution CSC: mindestens 4 Byte**
+**High Resolution CSC: mindestens 18 Byte (wie im Original)**
 
-Nur Bytes 0–3 werden als kumulativer uint32-Dynamo-Pulszähler interpretiert. Die übrigen Bytes werden nicht dekodiert. Strecke = gültiges Pulsdelta × Radumfang / Polzahl.
+Maßgebliche lokale Quelle: `appcon-decompiled/sources/de/thomastreyer/beonbike/model/`.
+`BtAPPCON3000.java:190–198` überschreibt den generischen Decoder in
+`BtDynamoHarvester.java`. Dessen direkte 64-Bit-Tickinterpretation gilt **nicht** für APPCON3000.
+`BtDeviceKt.java:13–15` bestätigt Little Endian und unsigned 32-Bit-Wörter.
 
-**Geschwindigkeit ist vorläufig:** Die austauschbare Zeitquelle `notificationClock` verwendet `performance.now()` zwischen Notifications. Der originale Gerätezeitdecoder ist noch nicht verifiziert. Funkverzögerungen und gebündelte Notifications beeinflussen die Messung. Negative Rücksprünge bzw. Deltas über den halben uint32-Bereich und Geschwindigkeiten über 100 km/h werden verworfen; ein plausibler uint32-Rollover wird berücksichtigt. Nach einem ungültigen Sprung wird die Basis neu gesetzt. Nach vier Sekunden ohne gültige neue Pulse wird 0 km/h angezeigt. Dieser Timeout ist eine App-Heuristik, keine Protokollkonstante.
+| Bytes | Interpretation |
+| --- | --- |
+| 0–3 | Kumulativer uint32-Dynamo-Pulszähler |
+| 4–7 | uint32-Sekundenbruchteil, geteilt durch 2^32 |
+| 8–11 | uint32 ganze Sekunden |
+| 12 ff. | Für diese Berechnung nicht ausgewertet |
+
+Zusammen sind Bytes 4–11 ein Q32.32-Sekundenwert. Der Originaldecoder rechnet:
+
+```text
+seconds = uint32LE(8) + uint32LE(4) / 4294967296
+poleTime = trunc(seconds * 32768)
+```
+
+Die Web-App übernimmt die ursprüngliche Double-Arithmetik und Abschneidung.
+Die Zeitbasis von `poleTime` ist damit 1/32768 Sekunde.
+
+`BobSegment.java:440–482` hält maximal 256 Punkte vor. Ausgehend vom vorletzten
+Punkt sucht es rückwärts, bis mindestens 16393 Ticks Abstand erreicht sind oder
+nur noch der älteste Punkt verfügbar ist. Über dieses Fenster gilt:
+
+```text
+speed_kmh = (deltaPulses / deltaPoleTime)
+            * wheelCircumference / wheelPoleCount * 32786 * 3.6
+```
+
+**Belegte Besonderheit:** Im Original stehen tatsächlich **32786** und **16393**,
+obwohl der Decoder **32768** nutzt. Die Web-App übernimmt diese Geschwindigkeits-
+und Glättungskonstanten originalgetreu. Der Faktor ergibt gegenüber der aus der
+Decoderzeitbasis abgeleiteten Formel rund +0,0549 %. Ob dies ein Tippfehler oder
+beabsichtigt ist, ist nicht belegt; es wird nicht stillschweigend korrigiert.
+`BobSegment.java:420` verwendet ebenfalls 32786, während `GpxExporter.java:95`
+mit 32768 in Millisekunden umrechnet. `SegmentView.java:112` bestätigt m/s → km/h
+mit Faktor 3,6.
+
+Der Originalempfänger drosselt anhand der Empfangsuhr auf Abstände >200 ms.
+Die Web-App übernimmt diese Drosselung nicht und verarbeitet jede gültige
+Notification. Empfangszeiten beeinflussen ausschließlich den Stillstands-Watchdog,
+**nicht** die Geschwindigkeitsformel. Es gibt keinen Empfangszeit-Fallback:
+ungültige Pakete werden ignoriert, ungültige Zeitdifferenzen verwerfen das Intervall
+und setzen eine neue Basis. Der UI-Hinweis lautet „APPCON High-Resolution“.
+
+**Rollover und zusätzliche Schutzlogik:** Die originale Geschwindigkeitsfunktion
+subtrahiert Java-`int`-Pulszähler (kleine Vorwärtsdeltas über den Überlauf funktionieren
+durch Integer-Wrap) und `long`-Zeitwerte ohne explizite Timestamp-Wrap-Korrektur.
+Die Web-App berechnet Pulsdeltas modulo 2^32 und Tickdeltas modulo 2^47. Damit
+funktionieren sowohl der Übertrag vom Bruchteil zum Sekundenwort als auch dessen
+Überlauf. Deltas über den halben Wertebereich gelten als Rücksprung/Reset; Zeitdelta 0
+bei geänderten Pulsen wird verworfen. Identische Punkte werden ignoriert.
+Unrealistische Geschwindigkeiten >100 km/h werden sowohl vor als auch nach der
+Glättung verworfen. Nach vier Sekunden ohne gültige neue Pulse wird 0 km/h angezeigt.
+Disconnect, Sichtbarkeitswechsel und Änderung der Radparameter löschen die Messbasis.
+
+Die Distanz bleibt unabhängig vom Glättungsfenster:
+`distanceMeters = adjacentPulseDelta * wheelCircumference / wheelPoleCount`.
+Radumfang (Default 2,149 m) und Polzahl (Default 14) bleiben konfigurierbar.
+
+Lokale Regressionstests: `node tests/highres.cjs`. Sie enthalten alle 16 bereitgestellten
+Originalpakete sowie Rollover-, Reset-, Glättungs-, Längen- und Watchdog-Prüfungen.
+Mit 2,149 m / 14: 48576 → 48663 = 87 Pulse = 13,3545 m. Das erste Paket setzt
+die Basis. Die folgenden 15 Geschwindigkeiten in km/h, auf drei Stellen gerundet:
+8,006; 6,848; 6,249; 4,227; 6,611; 6,736; 6,542; 4,328; 0,031;
+8,674; 8,740; 8,021; 8,015; 5,511; 3,558.
+Dieselben Ergebnisse entstehen bei stark gebündelten Empfangszeiten.
+Ein realer Fahrtest mit iPhone/WebBLE steht weiterhin aus.
 
 ## Aktualisierung, Persistenz und Datenschutz
 
@@ -77,7 +144,7 @@ Sämtliche BLE-Daten bleiben lokal im Browser; **unsere App überträgt keine BL
 
 ## Bekannte TODOs
 
-- Original APPCON high-resolution timestamp decoder implementieren.
+- Ursache der Original-Konstanten 32786 statt 32768 klären; bis dahin originalgetreu beibehalten.
 - Harvester-Verwendung und -Datenformat verifizieren, bevor ein Decoder ergänzt wird.
 - Charger-Byte 15, MPP-/DynamoPeakPeak-Einheiten und Bedeutungen von State/Flags verifizieren.
 - Reale BLE-Verbindung, iPhone/WebBLE, Fahrbetrieb, Timing, Hintergrundverhalten und Wiederverbindung am Gerät testen.
