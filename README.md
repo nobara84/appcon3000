@@ -1,4 +1,4 @@
-# APPCON3000 WebBLE · v0.1
+# APPCON3000 WebBLE · v0.3
 
 Deutschsprachige, mobile Web-App als Ersatz für die nicht mehr verfügbare iOS-App des NC-17 APPCON3000 Fahrraddynamo-/Ladesystems. Eine eigenständige `index.html` mit HTML, CSS und JavaScript; ohne Framework, Build, externe Bibliotheken, CDN, Tracker oder Analytics.
 
@@ -166,3 +166,46 @@ Sämtliche BLE-Daten bleiben lokal im Browser; **unsere App überträgt keine BL
 - Harvester-Verwendung und -Datenformat verifizieren, bevor ein Decoder ergänzt wird.
 - Charger-Byte 15, MPP-/DynamoPeakPeak-Einheiten und Bedeutungen von State/Flags verifizieren.
 - Reale BLE-Verbindung, iPhone/WebBLE, Fahrbetrieb, Timing, Hintergrundverhalten und Wiederverbindung am Gerät testen.
+
+## Changelog
+
+Dieser Changelog dokumentiert die Entwicklung unserer unabhängigen Web-App.
+Bei neuen Versionen soll er weitergeführt werden; die neueste Version steht oben.
+
+### v0.3
+
+- Screen Wake Lock hinzugefügt
+- Option „Bildschirm eingeschaltet lassen“
+- Wake Lock wird nach Sichtbarkeitswechsel bei Bedarf erneut angefordert
+- Fallback-Hinweis für iOS/WebBLE, falls Screen Wake Lock nicht unterstützt wird
+- Benutzerpräferenz wird lokal gespeichert
+- Keine automatische Wake-Lock-Anforderung ohne geeignete Benutzeraktion
+
+### v0.2
+
+- APPCON3000 High-Resolution-Geschwindigkeitsberechnung implementiert
+- Geschwindigkeit verwendet die interne APPCON-Gerätezeit statt der Ankunftszeit der Bluetooth-Notifications
+- Q32.32-Zeitdecoder implementiert
+- Zeitbasis 1/32768 Sekunde
+- Originale Geschwindigkeits-/Glättungskonstanten 32786 und 16393 übernommen
+- Geschwindigkeitsglättung über APPCON-Messpunkte
+- Rollover- und Plausibilitätsbehandlung ergänzt
+- HighRes-Regressionstests mit 16 real aufgezeichneten BLE-Paketen ergänzt
+
+### v0.1
+
+- Erste funktionsfähige APPCON3000-WebBLE-Version
+- Direkte Bluetooth-Verbindung zum APPCON3000 über WebBLE
+- Live-Geschwindigkeitsanzeige
+- Tageskilometer
+- Gesamtkilometer
+- Persistente Speicherung von Trip und Odometer in localStorage
+- Manueller Gesamtkilometer-Startwert
+- Einstellbarer Radumfang und Polzahl
+- Battery-Monitor dekodiert: Ladezustand, Spannung, Strom, Temperatur, State of Health, Kapazität und Ladezyklen
+- Charger-Monitor dekodiert
+- Dynamo-/Eingangsleistung
+- USB-Spannung, USB-Strom und USB-Leistung
+- Verbindungs-/Disconnect-Behandlung
+- Mobile dunkle Benutzeroberfläche
+- GitHub-Pages/WebBLE-Betrieb über HTTPS
