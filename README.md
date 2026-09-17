@@ -1,4 +1,4 @@
-# APPCON3000 WebBLE · v0.3.2
+# APPCON3000 WebBLE · v0.3.3
 
 Deutschsprachige, mobile Web-App als Ersatz für die nicht mehr verfügbare iOS-App des NC-17 APPCON3000 Fahrraddynamo-/Ladesystems. Eine eigenständige `index.html` mit HTML, CSS und JavaScript; ohne Framework, Build, externe Bibliotheken, CDN, Tracker oder Analytics.
 
@@ -164,6 +164,12 @@ die Basis. Die folgenden 15 Geschwindigkeiten in km/h, auf drei Stellen gerundet
 Dieselben Ergebnisse entstehen bei stark gebündelten Empfangszeiten.
 Ein realer Fahrtest mit iPhone/WebBLE steht weiterhin aus.
 
+Unter **Details** zeigen „Dynamo-Pulse (roh)“ und „Pulse seit Verbindung“ den
+Counter jeder gültigen HighRes-Notification und dessen Differenz zum ersten
+Counter der Verbindung, modulo 2^32. Vor dem ersten Paket und nach dem Disconnect
+steht „—“. Bei einer neuen Verbindung beginnt die Differenz mit 0. Diese Diagnose
+wird nicht gespeichert und übernimmt keine Filter der Geschwindigkeitsberechnung.
+
 ## Aktualisierung, Persistenz und Datenschutz
 
 Battery und Charger werden sofort nach dem Verbindungsaufbau und dann mit einer Sekunde Pause nach Abschluss eines Polls gelesen. Sämtliche Reads erfolgen nacheinander, ohne überlappende Polls. Ein einzelner Lesefehler trennt die Verbindung nicht; betroffene Werte werden als „—“ dargestellt und erneut abgefragt. Disconnect stoppt das Polling, setzt Geschwindigkeit auf 0 und entfernt alte Telemetrieanzeigen.
@@ -183,6 +189,11 @@ Sämtliche BLE-Daten bleiben lokal im Browser; **unsere App überträgt keine BL
 
 Dieser Changelog dokumentiert die Entwicklung unserer unabhängigen Web-App.
 Bei neuen Versionen soll er weitergeführt werden; die neueste Version steht oben.
+
+### v0.3.3
+
+- Diagnoseanzeige für rohen Dynamo-Pulszähler
+- Pulse seit Verbindungsaufbau zur Kalibrierung
 
 ### v0.3.2
 

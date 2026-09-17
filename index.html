@@ -15,7 +15,7 @@
 </head>
 <body>
 <main>
-<header><div><h1>APPCON3000</h1><p id="status" class="status muted" role="status">Getrennt</p><button id="connected-status" type="button" aria-label="Verbunden – Verbindung trennen" hidden><span class="connection-dot" aria-hidden="true">●</span>Verbunden</button></div><span class="version">v0.3.2</span></header>
+<header><div><h1>APPCON3000</h1><p id="status" class="status muted" role="status">Getrennt</p><button id="connected-status" type="button" aria-label="Verbunden – Verbindung trennen" hidden><span class="connection-dot" aria-hidden="true">●</span>Verbunden</button></div><span class="version">v0.3.3</span></header>
 <button id="connect" type="button">APPCON verbinden</button>
 <div id="disconnect-confirmation" class="card" role="group" aria-labelledby="disconnect-question" hidden>
 <p id="disconnect-question">Verbindung zum APPCON3000 trennen?</p>
@@ -31,7 +31,7 @@
 <article class="card"><h2>Dynamo / Eingang</h2><div class="value"><span id="dynamo">—</span> <span class="unit">W</span></div></article>
 <article class="card"><h2>USB</h2><div class="value"><span id="usb">—</span> <span class="unit">W</span></div><p class="muted"><span id="vout">—</span> V / <span id="iout">—</span> A</p></article>
 </section>
-<details><summary>Details</summary><dl id="technical"></dl></details>
+<details><summary>Details</summary><dl><div><dt>Dynamo-Pulse (roh)</dt><dd id="pulse-raw">—</dd></div><div><dt>Pulse seit Verbindung</dt><dd id="pulse-since-connection">—</dd></div></dl><dl id="technical"></dl></details>
 <details><summary>Einstellungen</summary>
 <label class="wake-option"><input id="wake-enabled" type="checkbox" aria-describedby="wake-status">Bildschirm eingeschaltet lassen</label>
 <p id="wake-status" class="muted" role="status">Bildschirm-Wake-Lock nicht aktiv</p>
@@ -157,6 +157,18 @@ function processPulses(sample,receivedAt){
 }
 setInterval(()=>{if(lastPulseAt!==null && performance.now()-lastPulseAt>STOP_AFTER_MS){speed=0;put('speed',0,1);}},500);
 
+// Read-only diagnostics: baseline is connection-scoped, never persisted.
+let diagnosticPulseBaseline=null;
+function resetPulseDiagnostics(){
+  diagnosticPulseBaseline=null;
+  $('pulse-raw').textContent='—';$('pulse-since-connection').textContent='—';
+}
+function renderPulseDiagnostics(counter){
+  if(diagnosticPulseBaseline===null)diagnosticPulseBaseline=counter;
+  $('pulse-raw').textContent=String(counter);
+  $('pulse-since-connection').textContent=String((counter-diagnosticPulseBaseline+2**32)%2**32);
+}
+
 // UI: fehlende oder fehlgeschlagene Messungen als Strich statt als vermeintliche Null.
 let battery=null,charger=null;
 function renderDistance(){
@@ -241,6 +253,7 @@ renderConnection(false);
 function cleanup(s){
   if(session!==s)return;
   session=null;clearTimeout(s.timer);
+  resetPulseDiagnostics();
   s.csc?.removeEventListener('characteristicvaluechanged',s.onData);
   s.device.removeEventListener('gattserverdisconnected',s.onDisconnect);
   if(s.device.gatt.connected)s.device.gatt.disconnect();
@@ -285,7 +298,8 @@ async function connect(){
     s.charger=await service.getCharacteristic(UUID.charger);
     if(session!==s)return;
     resetMotion();
-    s.onData=event=>{if(session!==s)return;try{const view=event.target.value,sample=decodeHighRes(view);debugPacket('CSC',view,sample);processPulses(sample,performance.now());}catch(error){console.debug('CSC-Paket verworfen',error);}};
+    resetPulseDiagnostics();
+    s.onData=event=>{if(session!==s)return;try{const view=event.target.value,sample=decodeHighRes(view);debugPacket('CSC',view,sample);renderPulseDiagnostics(sample.counter);processPulses(sample,performance.now());}catch(error){console.debug('CSC-Paket verworfen',error);}};
     s.csc.addEventListener('characteristicvaluechanged',s.onData);
     await s.csc.startNotifications();
     if(session!==s)return;
