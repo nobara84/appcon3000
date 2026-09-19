@@ -3,7 +3,7 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const vm=require('node:vm');
 const html=fs.readFileSync(require('node:path').join(__dirname,'../index.html'),'utf8');
-function target(){return {handlers:{},textContent:'',value:'',hidden:false,disabled:false,
+function target(){return {handlers:{},dataset:{},textContent:'',value:'',hidden:false,disabled:false,
  addEventListener(e,f){this.handlers[e]=f;},removeEventListener(e,f){if(this.handlers[e]===f)delete this.handlers[e];},
  emit(e){this.handlers[e]?.();},replaceChildren(){},append(){}};}
 const nodes=new Map();const node=id=>{if(!nodes.has(id))nodes.set(id,target());return nodes.get(id);};

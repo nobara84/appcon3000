@@ -23,7 +23,7 @@ const packets = [
 ];
 const nodes = new Map();
 function node(id) {
-  if (!nodes.has(id)) nodes.set(id, {textContent:'', value:'', handlers:{},
+  if (!nodes.has(id)) nodes.set(id, {dataset:{},textContent:'', value:'', handlers:{},
     addEventListener(event, callback){this.handlers[event]=callback;}, append(){}, replaceChildren(){}});
   return nodes.get(id);
 }

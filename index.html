@@ -11,11 +11,12 @@
 .wake-option{display:flex;align-items:center;gap:12px;min-height:48px}.wake-option input{width:24px;min-height:24px;height:24px;accent-color:#c5f580;flex-shrink:0}#wake-retry{width:100%}
 /* Compact connection control; hidden controls must take no layout space. */
 #connected-status{min-height:36px;margin-top:4px;padding:6px 8px;background:transparent;color:#edf5ee;font-size:.9rem;font-weight:500}#connected-status .connection-dot{color:#83df9b;margin-right:6px}#connect[hidden],#connected-status[hidden],#disconnect-confirmation[hidden]{display:none}#disconnect-confirmation{margin-top:12px}
+.average{font-size:1.15rem;font-variant-numeric:tabular-nums}.average-value[data-band="red"]{color:#e89a96}.average-value[data-band="yellow"]{color:#dfc779}.average-value[data-band="green"]{color:#92cda2}
 </style>
 </head>
 <body>
 <main>
-<header><div><h1>APPCON3000</h1><p id="status" class="status muted" role="status">Getrennt</p><button id="connected-status" type="button" aria-label="Verbunden – Verbindung trennen" hidden><span class="connection-dot" aria-hidden="true">●</span>Verbunden</button></div><span class="version">v0.3.3</span></header>
+<header><div><h1>APPCON3000</h1><p id="status" class="status muted" role="status">Getrennt</p><button id="connected-status" type="button" aria-label="Verbunden – Verbindung trennen" hidden><span class="connection-dot" aria-hidden="true">●</span>Verbunden</button></div><span class="version">v0.3.4</span></header>
 <button id="connect" type="button">APPCON verbinden</button>
 <div id="disconnect-confirmation" class="card" role="group" aria-labelledby="disconnect-question" hidden>
 <p id="disconnect-question">Verbindung zum APPCON3000 trennen?</p>
@@ -23,7 +24,7 @@
 <button id="disconnect-apply" type="button">Trennen</button>
 </div>
 <p id="message" class="message" role="status"></p><p id="storage-message" class="message" role="status"></p>
-<section class="speed" aria-label="Geschwindigkeit"><div class="number" id="speed">0,0</div><p>km/h</p><p class="muted">APPCON High-Resolution</p></section>
+<section class="speed" aria-label="Geschwindigkeit"><div class="number" id="speed">0,0</div><p>km/h</p><p class="average">Ø <span id="average-speed" class="average-value">—</span> km/h</p><p class="muted">APPCON High-Resolution</p></section>
 <section class="grid" aria-label="Fahrtdaten">
 <article class="card"><h2>Tageskilometer</h2><div class="value"><span id="trip">0,00</span> <span class="unit">km</span></div></article>
 <article class="card"><h2>Gesamtkilometer</h2><div class="value"><span id="odometer">0,00</span> <span class="unit">km</span></div></article>
@@ -59,12 +60,13 @@ const put = (id, value, digits) => { $(id).textContent = format(value,digits); }
 
 // Persistenz: ungerundete Meter; keine Speicherung von BLE-Rohpaketen.
 const STORAGE_KEY = 'appcon3000.v1';
-const defaults = {circumference:2.200,poles:14,trip:0,odometer:0};
+const defaults = {circumference:2.200,poles:14,trip:0,odometer:0,movingTime:0,averageDistance:0};
 const nonnegative = n => Number.isFinite(n) && n >= 0;
 function loadState(){
   try {
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
-    return {circumference:Number.isFinite(saved.circumference) && saved.circumference>0 ? saved.circumference : defaults.circumference,poles:Number.isSafeInteger(saved.poles) && saved.poles>0 ? saved.poles : defaults.poles,trip:nonnegative(saved.trip)?saved.trip:0,odometer:nonnegative(saved.odometer)?saved.odometer:0};
+    const validAverage=nonnegative(saved.movingTime) && nonnegative(saved.averageDistance) && saved.averageDistance<=saved.trip && saved.movingTime>0;
+    return {movingTime:validAverage?saved.movingTime:0,averageDistance:validAverage?saved.averageDistance:0,circumference:Number.isFinite(saved.circumference) && saved.circumference>0 ? saved.circumference : defaults.circumference,poles:Number.isSafeInteger(saved.poles) && saved.poles>0 ? saved.poles : defaults.poles,trip:nonnegative(saved.trip)?saved.trip:0,odometer:nonnegative(saved.odometer)?saved.odometer:0};
   } catch(error){ console.debug('Persistenz lesen',error); $('storage-message').textContent='Gespeicherte Werte konnten nicht geladen werden. Es gelten zunächst die Standardwerte.'; return {...defaults}; }
 }
 const state = loadState();
@@ -118,11 +120,13 @@ const SPEED_WINDOW_TICKS = 16393;
 const POLE_TIME_MODULUS = 2 ** 47; // Q32.32 seconds converted to 2^15 ticks/second.
 const STOP_AFTER_MS = 4000; // Browser watchdog only, not a device-time speed source.
 let previousSample=null,lastPulseAt=null,speed=0,motionHistory=[];
-function resetMotion(){previousSample=null;lastPulseAt=null;motionHistory=[];speed=0;put('speed',0,1);}
+function resetMotion(){averageLastArrival=null;previousSample=null;lastPulseAt=null;motionHistory=[];speed=0;put('speed',0,1);}
 function rebaseMotion(sample){
   previousSample=sample;motionHistory=[{pulses:0,ticks:0}];speed=0;put('speed',0,1);
 }
 function processPulses(sample,receivedAt){
+  const arrivalGap=averageLastArrival===null?null:receivedAt-averageLastArrival;
+  averageLastArrival=receivedAt;
   const previous=previousSample;
   if(!previous){rebaseMotion(sample);return;}
   const delta=(sample.counter-previous.counter+2**32)%2**32;
@@ -151,11 +155,27 @@ function processPulses(sample,receivedAt){
   previousSample=sample;
   // Distance always uses the adjacent counter delta, never the smoothing window.
   if(!Number.isFinite(state.trip+distance)||!Number.isFinite(state.odometer+distance))return;
-  if(delta>0){state.trip+=distance;state.odometer+=distance;lastPulseAt=receivedAt;saveState();renderDistance();}
+  if(delta>0){state.trip+=distance;state.odometer+=distance;lastPulseAt=receivedAt;recordMovingInterval(distance,ticks,arrivalGap);saveState();renderDistance();}
   speed=lastPulseAt!==null && receivedAt-lastPulseAt<=STOP_AFTER_MS?candidate:0;
   put('speed',speed,1);
 }
 setInterval(()=>{if(lastPulseAt!==null && performance.now()-lastPulseAt>STOP_AFTER_MS){speed=0;put('speed',0,1);}},500);
+
+// Trip average: use device seconds, not the live-speed compatibility multiplier.
+// Only pair distance with time from accepted, bounded movement intervals.
+// Untimed legacy/gap distance stays in the trip, but cannot enter this quotient.
+let averageLastArrival=null;
+function averageBand(value){return value<18?'red':value<23?'yellow':'green';}
+function renderAverage(){
+  const value=state.movingTime>0 && state.averageDistance>0?state.averageDistance/state.movingTime*3.6:null;
+  $('average-speed').textContent=format(value,1);
+  $('average-speed').dataset.band=value===null?'':averageBand(value);
+}
+function recordMovingInterval(distance,ticks,arrivalGap){
+  const seconds=ticks/32768;
+  if(document.hidden || arrivalGap===null || arrivalGap<0 || arrivalGap>STOP_AFTER_MS || seconds<=0 || seconds>STOP_AFTER_MS/1000)return;
+  state.movingTime+=seconds;state.averageDistance+=distance;
+}
 
 // Read-only diagnostics: baseline is connection-scoped, never persisted.
 let diagnosticPulseBaseline=null;
@@ -172,6 +192,7 @@ function renderPulseDiagnostics(counter){
 // UI: fehlende oder fehlgeschlagene Messungen als Strich statt als vermeintliche Null.
 let battery=null,charger=null;
 function renderDistance(){
+  renderAverage();
   for(const id of ['trip','odometer'])$(id).textContent=(state[id]/1000).toLocaleString('de-DE',{
     minimumFractionDigits:2,maximumFractionDigits:2,useGrouping:false
   });
@@ -214,7 +235,7 @@ $('odometer-form').addEventListener('submit',event=>{
 });
 $('reset').addEventListener('click',()=>{
   askDistanceAction('Tageskilometer wirklich auf 0 zurücksetzen? Die Gesamtkilometer bleiben erhalten.',()=>{
-    state.trip=0;saveState();renderDistance();$('message').textContent='Tageskilometer zurückgesetzt.';
+    state.trip=0;state.movingTime=0;state.averageDistance=0;averageLastArrival=null;saveState();renderDistance();$('message').textContent='Tageskilometer zurückgesetzt.';
   });
 });
 

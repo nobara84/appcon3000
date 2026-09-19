@@ -5,7 +5,7 @@ const vm=require('node:vm');
 const html=fs.readFileSync(require('node:path').join(__dirname,'../index.html'),'utf8');
 function setup(savedState){
  const nodes=new Map();
- const node=id=>{if(!nodes.has(id))nodes.set(id,{value:'',textContent:'',hidden:true,handlers:{},
+ const node=id=>{if(!nodes.has(id))nodes.set(id,{value:'',dataset:{},textContent:'',hidden:true,handlers:{},
   addEventListener(name,handler){this.handlers[name]=handler;},replaceChildren(){},append(){}});return nodes.get(id);};
  const storage=new Map(savedState?[['appcon3000.v1',JSON.stringify(savedState)]]:[]);
  const context=vm.createContext({DataView,Uint8Array,console:{debug(){},error:console.error},

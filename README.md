@@ -1,4 +1,4 @@
-# APPCON3000 WebBLE · v0.3.3
+# APPCON3000 WebBLE · v0.3.4
 
 Deutschsprachige, mobile Web-App als Ersatz für die nicht mehr verfügbare iOS-App des NC-17 APPCON3000 Fahrraddynamo-/Ladesystems. Eine eigenständige `index.html` mit HTML, CSS und JavaScript; ohne Framework, Build, externe Bibliotheken, CDN, Tracker oder Analytics.
 
@@ -170,6 +170,27 @@ Counter der Verbindung, modulo 2^32. Vor dem ersten Paket und nach dem Disconnec
 steht „—“. Bei einer neuen Verbindung beginnt die Differenz mit 0. Diese Diagnose
 wird nicht gespeichert und übernimmt keine Filter der Geschwindigkeitsberechnung.
 
+## Durchschnittsgeschwindigkeit
+
+Unter der Live-Geschwindigkeit erscheint der Trip-Schnitt: erfasste Strecke in Metern
+geteilt durch Fahrzeit in Sekunden, multipliziert mit 3,6. Nur positive, von der
+bestehenden Messlogik akzeptierte Pulsdeltas zählen. Die Zeit stammt aus APPCON-Ticks
+geteilt durch 32768. Ohne Pulse wird keine Fahrzeit addiert; der Durchschnitt bleibt stehen.
+Nur die Zahl ist eingefärbt: unter 18 km/h rot, ab 18 gelb, ab 23 grün.
+
+Intervalle über vier Sekunden Gerätezeit oder Empfangsabstand sowie Hintergrundintervalle
+werden für den Schnitt ausgeschlossen. Nach Reload, Reconnect und Sichtbarkeitswechsel
+wird erst eine neue Messbasis aufgebaut. Kurze Stopps innerhalb eines Intervalls lassen
+sich ohne weitere Gerätedaten nicht exakt von langsamer Fahrt unterscheiden.
+
+`movingTime` (Sekunden) und `averageDistance` (Meter mit zugehöriger Fahrzeit) werden
+zusammen mit dem Trip gespeichert. Bei vollständiger Erfassung entspricht diese Strecke
+der Trip-Distanz. Ältere Trips ohne Fahrzeit und Strecken aus ausgeschlossenen Lücken
+bleiben im Kilometerzähler erhalten, gehen aber nicht ohne passende Zeit in den Schnitt
+ein. Der Durchschnitt gilt dann nur für die zeitlich erfassten Teile des Trips.
+Ohne auswertbare Intervalle steht „Ø — km/h“. Trip-Reset löscht auch Fahrzeit und
+Durchschnittsstrecke; Gesamtkilometer bleiben erhalten.
+
 ## Aktualisierung, Persistenz und Datenschutz
 
 Battery und Charger werden sofort nach dem Verbindungsaufbau und dann mit einer Sekunde Pause nach Abschluss eines Polls gelesen. Sämtliche Reads erfolgen nacheinander, ohne überlappende Polls. Ein einzelner Lesefehler trennt die Verbindung nicht; betroffene Werte werden als „—“ dargestellt und erneut abgefragt. Disconnect stoppt das Polling, setzt Geschwindigkeit auf 0 und entfernt alte Telemetrieanzeigen.
@@ -189,6 +210,15 @@ Sämtliche BLE-Daten bleiben lokal im Browser; **unsere App überträgt keine BL
 
 Dieser Changelog dokumentiert die Entwicklung unserer unabhängigen Web-App.
 Bei neuen Versionen soll er weitergeführt werden; die neueste Version steht oben.
+
+### v0.3.4
+
+- Durchschnittsgeschwindigkeit für den aktuellen Trip
+- Berechnung anhand der erfassten Fahrzeit
+- Standzeiten werden nicht in die Fahrzeit eingerechnet
+- Farbliche Einordnung der Durchschnittsgeschwindigkeit
+- Durchschnitt und Fahrzeit werden lokal gespeichert
+- Trip-Reset setzt auch Durchschnitt und Fahrzeit zurück
 
 ### v0.3.3
 
