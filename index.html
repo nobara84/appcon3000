@@ -16,7 +16,7 @@
 </head>
 <body>
 <main>
-<header><div><h1>APPCON3000</h1><p id="status" class="status muted" role="status">Getrennt</p><button id="connected-status" type="button" aria-label="Verbunden – Verbindung trennen" hidden><span class="connection-dot" aria-hidden="true">●</span>Verbunden</button></div><span class="version">v0.3.4</span></header>
+<header><div><h1>APPCON3000</h1><p id="status" class="status muted" role="status">Getrennt</p><button id="connected-status" type="button" aria-label="Verbunden – Verbindung trennen" hidden><span class="connection-dot" aria-hidden="true">●</span>Verbunden</button></div><span class="version">v0.3.5</span></header>
 <button id="connect" type="button">APPCON verbinden</button>
 <div id="disconnect-confirmation" class="card" role="group" aria-labelledby="disconnect-question" hidden>
 <p id="disconnect-question">Verbindung zum APPCON3000 trennen?</p>
@@ -168,7 +168,7 @@ let averageLastArrival=null;
 function averageBand(value){return value<18?'red':value<23?'yellow':'green';}
 function renderAverage(){
   const value=state.movingTime>0 && state.averageDistance>0?state.averageDistance/state.movingTime*3.6:null;
-  $('average-speed').textContent=format(value,1);
+  $('average-speed').textContent=format(value,2);
   $('average-speed').dataset.band=value===null?'':averageBand(value);
 }
 function recordMovingInterval(distance,ticks,arrivalGap){

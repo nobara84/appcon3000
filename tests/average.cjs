@@ -25,17 +25,17 @@ assert.equal(app.node('average-speed').textContent,'—');
 app.run('processPulses({counter:0,poleTime:0},0);processPulses({counter:14,poleTime:32768},1000)');
 assert.equal(app.run('state.movingTime'),1);
 assert.equal(app.run('state.averageDistance'),app.run('state.trip'));
-assert.equal(app.node('average-speed').textContent,'7,9');
+assert.equal(app.node('average-speed').textContent,'7,92');
 app.run('processPulses({counter:14,poleTime:65536},2000)');
 assert.equal(app.run('state.movingTime'),1);
 app.run('processPulses({counter:28,poleTime:20*32768},20000)');
 assert.equal(app.run('state.movingTime'),1); // gap time and its distance excluded together
-assert.equal(app.node('average-speed').textContent,'7,9');
+assert.equal(app.node('average-speed').textContent,'7,92');
 app.run('processPulses({counter:42,poleTime:21*32768},21000)');
 assert.equal(app.run('state.movingTime'),2);
 assert.equal(app.stored().movingTime,2);
 const restored=setup(app.stored());assert.equal(restored.run('state.trip'),app.run('state.trip'));
-assert.equal(restored.run('state.movingTime'),2);assert.equal(restored.node('average-speed').textContent,'7,9');
+assert.equal(restored.run('state.movingTime'),2);assert.equal(restored.node('average-speed').textContent,'7,92');
 restored.run('processPulses({counter:100,poleTime:100*32768},100000)');assert.equal(restored.run('state.movingTime'),2);
 restored.run('processPulses({counter:114,poleTime:101*32768},101000)');assert.equal(restored.run('state.movingTime'),3);
 const odo=app.run('state.odometer');app.node('reset').handlers.click();app.apply();
@@ -46,9 +46,17 @@ for(const [value,band] of [[17.9,'red'],[18,'yellow'],[22.9,'yellow'],[23,'green
  app.run(`state.averageDistance=${value}/3.6;state.movingTime=1;renderAverage()`);
  assert.equal(app.node('average-speed').dataset.band,band);
 }
+// Display precision only; color thresholds still use the unrounded average.
+assert.equal(app.run('format(0,2)'),'0,00');
+for(const [value,display,band] of [[10.9,'10,90','red'],[11.427,'11,43','red'],
+ [17.999,'18,00','red'],[22.999,'23,00','yellow'],[23,'23,00','green']]){
+ app.run(`state.averageDistance=${value}/3.6;state.movingTime=1;renderAverage()`);
+ assert.equal(app.node('average-speed').textContent,display);
+ assert.equal(app.node('average-speed').dataset.band,band);
+}
 app=setup({trip:10000,odometer:50000});assert.equal(app.run('state.trip'),10000);assert.equal(app.node('average-speed').textContent,'—');
 app.run('processPulses({counter:0,poleTime:0},0);processPulses({counter:14,poleTime:32768},10000)');
 assert.equal(app.run('state.movingTime'),0); // reception gap even with short device interval
 app.run('resetMotion();processPulses({counter:28,poleTime:65536},11000)');assert.equal(app.run('state.movingTime'),0);
 app.run('document.hidden=true;processPulses({counter:42,poleTime:98304},12000)');assert.equal(app.run('state.movingTime'),0);
-console.log('PASS: moving/standing time, device-time quotient, gap exclusion, persistence/reload, reset with unchanged odometer, legacy trip, color thresholds.');
+console.log('PASS: moving/standing time, device-time quotient, gap exclusion, persistence/reload, reset with unchanged odometer, legacy trip, two-decimal German display, unrounded color thresholds.');
