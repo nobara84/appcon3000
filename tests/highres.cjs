@@ -82,13 +82,14 @@ near(run('state.trip'),4*2.149/14);near(run('speed'),4*2.149/14/16384*32786*3.6)
 const before=decode('00000000 000000c0 01000000 00000000 0000');
 const after=decode('01000000 00000040 02000000 00000000 0000');
 assert.equal(after.poleTime-before.poleTime,16384);
-// Reject reverse counter, reverse time, frozen time and excessive speed; rebase.
+// Reject invalid speed; retain small counter progress with plausible reception timing.
 for(const next of [{counter:99,poleTime:110000},{counter:101,poleTime:90000},
  {counter:101,poleTime:100000},{counter:10000,poleTime:100001}]) {
  reset();feed({counter:100,poleTime:100000},0);feed(next,1000);
- assert.equal(run('state.trip'),0);assert.equal(run('speed'),0);
+ const retained=next.counter===101?2.149/14:0;
+ near(run('state.trip'),retained);assert.equal(run('speed'),0);
  feed({counter:next.counter+1,poleTime:next.poleTime+32768},2000);
- near(run('state.trip'),2.149/14);
+ near(run('state.trip'),retained+2.149/14);
 }
 // Smoothing spans multiple close samples; distance never counts the window twice.
 reset();for(let i=0;i<300;i++)feed({counter:i,poleTime:i*2000},i);

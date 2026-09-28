@@ -1,4 +1,4 @@
-# APPCON3000 WebBLE · v0.3.6
+# APPCON3000 WebBLE · v0.3.7
 
 Deutschsprachige, mobile Web-App als Ersatz für die nicht mehr verfügbare iOS-App des NC-17 APPCON3000 Fahrraddynamo-/Ladesystems. Eine eigenständige `index.html` mit HTML, CSS und JavaScript; ohne Framework, Build, externe Bibliotheken, CDN, Tracker oder Analytics.
 
@@ -11,7 +11,7 @@ Dieses Projekt ist eine unabhängige, inoffizielle Implementierung zur Interoper
 3. Radumfang und Counter-Schritte pro Radumdrehung prüfen (Standard: 2,232 m / 12,775).
 4. Bei Bedarf den bisherigen Gesamtkilometerstand übernehmen; die Änderung verlangt eine Sicherheitsabfrage.
 
-Ohne `navigator.bluetooth` zeigt die App den Hinweis, die Seite in WebBLE zu öffnen. Die tatsächliche Kompatibilität mit Gerät und WebBLE muss noch auf einem iPhone geprüft werden. Hintergrundbetrieb und Bildschirm-Sperre können die Messung unterbrechen. Während einer Trennung oder Hintergrundpause ist keine vollständige Streckenerfassung gewährleistet. Nach Verbindungsaufbau bzw. Sichtbarkeitswechsel dient das erste CSC-Paket als neue Basis.
+Ohne `navigator.bluetooth` zeigt die App den Hinweis, die Seite in WebBLE zu öffnen. Die tatsächliche Kompatibilität mit Gerät und WebBLE muss noch auf einem iPhone geprüft werden. Hintergrundbetrieb und Bildschirm-Sperre können die Messung unterbrechen. Bei kurzen unbeabsichtigten BLE-Abbrüchen kann der kumulative Counter fehlende Distanz nachliefern (siehe unten). Vollständige Erfassung während Trennungen oder Hintergrundpausen ist nicht garantiert. Nach einem Sichtbarkeitswechsel wird weiterhin neu baselined.
 
 Die aktuelle projektspezifische Kalibrierung gilt für den Reifen **40-622 / 28 × 1.50 / 700 × 38C**:
 
@@ -70,6 +70,7 @@ Es entstehen keine zusätzlichen Netzwerkrequests oder Telemetriedaten.
 Tests ohne Hardware: `node tests/wakelock.cjs`; bestehende Messlogiktests:
 `node tests/highres.cjs`. Einstellungen und Kilometerstände: `node tests/distance.cjs`.
 Neue Messkalibrierung, Dezimaleingaben und Erhalt gespeicherter Werte: `node tests/calibration.cjs`.
+BLE-Recovery und getrennte Distanz-/Geschwindigkeitsprüfung: `node tests/recovery.cjs`.
 
 ## GitHub Pages
 
@@ -159,18 +160,21 @@ Decoderzeitbasis abgeleiteten Formel rund +0,0549 %. Der Grund für diese Abweic
 ist nicht geklärt. Die Umrechnung von m/s in km/h erfolgt mit Faktor 3,6.
 
 Die Web-App verarbeitet jede gültige
-Notification. Empfangszeiten beeinflussen ausschließlich den Stillstands-Watchdog,
-**nicht** die Geschwindigkeitsformel. Es gibt keinen Empfangszeit-Fallback:
-ungültige Pakete werden ignoriert, ungültige Zeitdifferenzen verwerfen das Intervall
-und setzen eine neue Basis. Der UI-Hinweis lautet „APPCON High-Resolution“.
+Notification. Empfangszeiten beeinflussen den Stillstands-Watchdog, die
+Distanz-Plausibilitätsprüfung und die Auswahl der Durchschnittsintervalle,
+**nicht** die Geschwindigkeitsformel. Für Geschwindigkeit gibt es keinen Empfangszeit-Fallback:
+ungültige Pakete werden ignoriert. Ungültige Zeitdifferenzen setzen die Geschwindigkeitsbasis
+neu; unabhängig plausibler Counter-Fortschritt kann dennoch als Distanz zählen. Der UI-Hinweis lautet „APPCON High-Resolution“.
 
 **Rollover und Schutzlogik:** Die Web-App berechnet Pulsdeltas modulo 2^32 und Tickdeltas modulo 2^47. Damit
 funktionieren sowohl der Übertrag vom Bruchteil zum Sekundenwort als auch dessen
 Überlauf. Deltas über den halben Wertebereich gelten als Rücksprung/Reset; Zeitdelta 0
-bei geänderten Pulsen wird verworfen. Identische Punkte werden ignoriert.
+bei geänderten Pulsen ist für Geschwindigkeit unbrauchbar. Identische Punkte werden ignoriert.
 Unrealistische Geschwindigkeiten >100 km/h werden sowohl vor als auch nach der
-Glättung verworfen. Nach vier Sekunden ohne gültige neue Pulse wird 0 km/h angezeigt.
-Disconnect, Sichtbarkeitswechsel und Änderung der Radparameter löschen die Messbasis.
+Glättung verworfen. Für die Distanz gibt es eine getrennte Counter-Prüfung.
+Nach vier Sekunden ohne gültige neue Speed-Pulse wird 0 km/h angezeigt.
+Disconnect löscht die Speed-Historie; Sichtbarkeitswechsel und Änderung der
+Radparameter löschen die aktiven Messbaselines.
 
 Die Distanz bleibt unabhängig vom Glättungsfenster:
 `distanceMeters = adjacentPulseDelta * wheelCircumference / counterStepsPerRevolution`.
@@ -191,11 +195,52 @@ Counter der Verbindung, modulo 2^32. Vor dem ersten Paket und nach dem Disconnec
 steht „—“. Bei einer neuen Verbindung beginnt die Differenz mit 0. Diese Diagnose
 wird nicht gespeichert und übernimmt keine Filter der Geschwindigkeitsberechnung.
 
+## Distanz-Recovery bei kurzen BLE-Abbrüchen
+
+Bei einem **unbeabsichtigten** `gattserverdisconnected` bleiben der letzte
+vertrauenswürdige Counter mit Gerätezeit, Empfangszeit, Geräteidentität und der
+Disconnect-Zeitpunkt vorübergehend im Arbeitsspeicher erhalten. Nach erneutem
+Verbinden wird das erste gültige HighRes-Paket desselben Geräts einmalig geprüft.
+Die App verbindet sich nicht automatisch neu.
+
+Für Recovery dürfen sowohl seit dem letzten vertrauenswürdigen Paket als auch
+seit dem Disconnect höchstens **120 Sekunden** vergangen sein. Das Counter-Delta
+wird modulo 2^32 berechnet und auf höchstens den halben Wertebereich begrenzt.
+Zusätzlich gilt anhand der verstrichenen Empfangszeit eine großzügige Obergrenze
+von **120 km/h**, zuzüglich eines Counter-Schritts für Quantisierung. Rückläufige
+oder gegenüber der Empfangszeit unplausibel weit fortgeschrittene Gerätezeit wird
+abgelehnt (maximal zwei Sekunden Zeitabweichung nach oben). Ein Counter-Rollover
+braucht vorwärts laufende Gerätezeit; ein eingefrorener Zeitstempel reicht dafür
+nicht aus. Bei Unsicherheit wird keine Strecke nachgetragen und neu baselined.
+Diese Plausibilitätsprüfung ist kein mathematischer Beweis gegen jeden denkbaren
+Geräte-Reset; sie verhindert insbesondere gigantische Modulo-Sprünge.
+
+Akzeptierte Lückendistanz ist ausschließlich
+`pulseDelta * circumference / poles` mit unveränderter Kalibrierung **2.232 / 12.775**.
+Sie wird einmal zu Trip und Odometer addiert; die Recovery-Basis wird verbraucht.
+Unter Details erscheint der zuletzt erfolgreich nachgetragene Betrag als
+**„Reconnect-Distanz nachgetragen: X,XX m“**. Die Diagnose ist nicht persistent.
+**Es wird keine Live-Geschwindigkeit für die Lücke rekonstruiert.** Die erste
+Notification setzt eine neue Speed-Basis, erst weitere gültige Pakete liefern
+Geschwindigkeit. Lückendistanz und Lückenzeit gehen nicht in den Trip-Durchschnitt ein.
+
+Manuelles Trennen beendet die Session ohne Recovery. Trip-Reset und Änderung der
+Kalibrierung verwerfen ausstehende Recovery und setzen die Messbasis neu, damit
+keine Strecke von vor dem Reset nachgetragen wird. `pagehide` und Neuladen beenden
+Recovery ebenfalls. Ein fehlgeschlagener Verbindungsversuch verlängert die Frist
+nicht. Sichtbarkeitswechsel behalten ihr bisheriges aktives Rebaseline-Verhalten.
+
+Auch bei laufender Verbindung ist Distanz von der Speed-Filterung getrennt:
+Normal gültige Gerätezeitintervalle liefern dieselbe Distanz wie v0.3.6, auch bei
+gebündelten Notifications. Bei ungültiger Speed-Zeit oder >100 km/h darf nur ein
+über Empfangszeit und die obigen 120-km/h-/120-Sekunden-Grenzen plausibler
+Counter-Fortschritt zusätzlich Strecke liefern. Solche Intervalle liefern keine
+Fahrzeit für den Durchschnitt. Unplausible Counter-Sprünge setzen eine neue Basis.
+
 ## Durchschnittsgeschwindigkeit
 
 Unter der Live-Geschwindigkeit erscheint der Trip-Schnitt: erfasste Strecke in Metern
-geteilt durch Fahrzeit in Sekunden, multipliziert mit 3,6. Nur positive, von der
-bestehenden Messlogik akzeptierte Pulsdeltas zählen. Die Zeit stammt aus APPCON-Ticks
+geteilt durch Fahrzeit in Sekunden, multipliziert mit 3,6. Nur positive Pulsdeltas mit gültigem Geschwindigkeitsintervall zählen für den Schnitt. Die Zeit stammt aus APPCON-Ticks
 geteilt durch 32768. Ohne Pulse wird keine Fahrzeit addiert; der Durchschnitt bleibt stehen.
 Nur die Zahl ist eingefärbt: unter 18 km/h rot, ab 18 gelb, ab 23 grün.
 
@@ -231,6 +276,14 @@ Sämtliche BLE-Daten bleiben lokal im Browser; **unsere App überträgt keine BL
 
 Dieser Changelog dokumentiert die Entwicklung unserer unabhängigen Web-App.
 Bei neuen Versionen soll er weitergeführt werden; die neueste Version steht oben.
+
+### v0.3.7
+
+- Distanzakkumulation robuster gegen kurze unbeabsichtigte BLE-Aussetzer
+- Fehlende Distanz aus dem kumulativen HighRes-Counter einmalig nachtragen
+- Distanz von Speed-Filterung getrennt; keine künstliche Geschwindigkeit oder Fahrzeit für BLE-Lücken
+- Schutz gegen Counter-Reset und unrealistische Sprünge; manueller Disconnect beendet Recovery
+- Reconnect-Distanz in Details sichtbar; Kalibrierung und HighRes-Zeitdecoder unverändert
 
 ### v0.3.6
 

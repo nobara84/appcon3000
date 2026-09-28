@@ -16,7 +16,7 @@
 </head>
 <body>
 <main>
-<header><div><h1>APPCON3000</h1><p id="status" class="status muted" role="status">Getrennt</p><button id="connected-status" type="button" aria-label="Verbunden – Verbindung trennen" hidden><span class="connection-dot" aria-hidden="true">●</span>Verbunden</button></div><span class="version">v0.3.6</span></header>
+<header><div><h1>APPCON3000</h1><p id="status" class="status muted" role="status">Getrennt</p><button id="connected-status" type="button" aria-label="Verbunden – Verbindung trennen" hidden><span class="connection-dot" aria-hidden="true">●</span>Verbunden</button></div><span class="version">v0.3.7</span></header>
 <button id="connect" type="button">APPCON verbinden</button>
 <div id="disconnect-confirmation" class="card" role="group" aria-labelledby="disconnect-question" hidden>
 <p id="disconnect-question">Verbindung zum APPCON3000 trennen?</p>
@@ -32,7 +32,7 @@
 <article class="card"><h2>Dynamo / Eingang</h2><div class="value"><span id="dynamo">—</span> <span class="unit">W</span></div></article>
 <article class="card"><h2>USB</h2><div class="value"><span id="usb">—</span> <span class="unit">W</span></div><p class="muted"><span id="vout">—</span> V / <span id="iout">—</span> A</p></article>
 </section>
-<details><summary>Details</summary><dl><div><dt>Dynamo-Pulse (roh)</dt><dd id="pulse-raw">—</dd></div><div><dt>Pulse seit Verbindung</dt><dd id="pulse-since-connection">—</dd></div></dl><dl id="technical"></dl></details>
+<details><summary>Details</summary><dl><div><dt>Dynamo-Pulse (roh)</dt><dd id="pulse-raw">—</dd></div><div><dt>Pulse seit Verbindung</dt><dd id="pulse-since-connection">—</dd></div><div><dt>Reconnect-Distanz nachgetragen</dt><dd id="reconnect-distance">—</dd></div></dl><dl id="technical"></dl></details>
 <details><summary>Einstellungen</summary>
 <label class="wake-option"><input id="wake-enabled" type="checkbox" aria-describedby="wake-status">Bildschirm eingeschaltet lassen</label>
 <p id="wake-status" class="muted" role="status">Bildschirm-Wake-Lock nicht aktiv</p>
@@ -120,16 +120,69 @@ const SPEED_TICK_FACTOR = 32786;
 const SPEED_WINDOW_TICKS = 16393;
 const POLE_TIME_MODULUS = 2 ** 47; // Q32.32 seconds converted to 2^15 ticks/second.
 const STOP_AFTER_MS = 4000; // Browser watchdog only, not a device-time speed source.
+// Separate distance continuity from speed history; recovery lives only in this page.
+const RECOVERY_MAX_MS = 120000;
+const DISTANCE_MAX_KMH = 120;
+let distanceBaseline=null,pendingRecovery=null;
+function counterDelta(sample,base){return (sample.counter-base.counter+2**32)%2**32;}
+function tickDelta(sample,base){return (sample.poleTime-base.poleTime+POLE_TIME_MODULUS)%POLE_TIME_MODULUS;}
+function boundedCounterProgress(sample,base,receivedAt,recovery=false){
+  const delta=counterDelta(sample,base),ticks=tickDelta(sample,base);
+  const elapsed=receivedAt-base.receivedAt;
+  if(delta>0x7fffffff || !Number.isFinite(elapsed) || elapsed<=0 || elapsed>RECOVERY_MAX_MS)return false;
+  // One counter step allows endpoint quantization, not an arbitrary distance jump.
+  const maxSteps=elapsed/1000*DISTANCE_MAX_KMH/3.6*state.poles/state.circumference+1;
+  if(delta>maxSteps)return false;
+  // A backwards device clock is a reset warning during recovery. A wrapped counter
+  // also needs forward device-time evidence; frozen time alone cannot prove a wrap.
+  if(recovery || sample.counter<base.counter){
+    if(ticks>=POLE_TIME_MODULUS/2 || ticks/32768>elapsed/1000+2)return false;
+    if(sample.counter<base.counter && ticks===0)return false;
+  }
+  return true;
+}
+function addDistance(distance){
+  if(!Number.isFinite(distance) || !Number.isFinite(state.trip+distance) || !Number.isFinite(state.odometer+distance))return false;
+  if(distance>0){state.trip+=distance;state.odometer+=distance;saveState();renderDistance();}
+  return true;
+}
+function accumulateDistance(sample,receivedAt){
+  const base=distanceBaseline;
+  distanceBaseline={...sample,receivedAt,trusted:true};
+  if(!base)return {distance:0,accepted:true};
+  const delta=counterDelta(sample,base),ticks=tickDelta(sample,base);
+  const distance=delta*state.circumference/state.poles;
+  const deviceSpeed=distance/ticks*SPEED_TICK_FACTOR*3.6;
+  // Preserve v0.3.6 results and notification-bunching behavior for valid intervals.
+  const ordinary=delta<=0x7fffffff && ticks>0 && ticks<POLE_TIME_MODULUS/2
+    && Number.isFinite(deviceSpeed) && deviceSpeed<=100;
+  const duplicate=delta===0 && ticks===0;
+  const accepted=(ordinary || duplicate || boundedCounterProgress(sample,base,receivedAt)) && addDistance(distance);
+  distanceBaseline.trusted=accepted;
+  return {distance:accepted?distance:0,accepted};
+}
+function sameDevice(a,b){return a===b || Boolean(a?.id && b?.id && a.id===b.id);}
+function recoverDistance(sample,receivedAt,device){
+  const recovery=pendingRecovery;
+  pendingRecovery=null; // Consume once, including rejected recovery attempts.
+  if(!recovery)return;
+  const gap=receivedAt-recovery.disconnectedAt;
+  if(!sameDevice(device,recovery.device) || gap<0 || gap>RECOVERY_MAX_MS
+    || !boundedCounterProgress(sample,recovery.baseline,receivedAt,true))return;
+  const distance=counterDelta(sample,recovery.baseline)*state.circumference/state.poles;
+  if(addDistance(distance))$('reconnect-distance').textContent=format(distance,2)+' m';
+}
 let previousSample=null,lastPulseAt=null,speed=0,motionHistory=[];
-function resetMotion(){averageLastArrival=null;previousSample=null;lastPulseAt=null;motionHistory=[];speed=0;put('speed',0,1);}
+function resetMotion(){distanceBaseline=null;averageLastArrival=null;previousSample=null;lastPulseAt=null;motionHistory=[];speed=0;put('speed',0,1);}
 function rebaseMotion(sample){
   previousSample=sample;motionHistory=[{pulses:0,ticks:0}];speed=0;put('speed',0,1);
 }
 function processPulses(sample,receivedAt){
+  const counted=accumulateDistance(sample,receivedAt);
   const arrivalGap=averageLastArrival===null?null:receivedAt-averageLastArrival;
   averageLastArrival=receivedAt;
   const previous=previousSample;
-  if(!previous){rebaseMotion(sample);return;}
+  if(!previous || !counted.accepted){rebaseMotion(sample);return;}
   const delta=(sample.counter-previous.counter+2**32)%2**32;
   // Unsigned modular deltas handle pulse-counter and seconds-word rollover.
   // Modulo 2^47 ticks handles seconds-word wrap; >=half range means backward/reset.
@@ -154,9 +207,8 @@ function processPulses(sample,receivedAt){
     *state.circumference/state.poles*SPEED_TICK_FACTOR*3.6;
   if(!Number.isFinite(candidate)||candidate>100){rebaseMotion(sample);return;}
   previousSample=sample;
-  // Distance always uses the adjacent counter delta, never the smoothing window.
-  if(!Number.isFinite(state.trip+distance)||!Number.isFinite(state.odometer+distance))return;
-  if(delta>0){state.trip+=distance;state.odometer+=distance;lastPulseAt=receivedAt;recordMovingInterval(distance,ticks,arrivalGap);saveState();renderDistance();}
+  // Only valid speed intervals contribute matched distance/time to the average.
+  if(delta>0){lastPulseAt=receivedAt;recordMovingInterval(counted.distance,ticks,arrivalGap);saveState();renderDistance();}
   speed=lastPulseAt!==null && receivedAt-lastPulseAt<=STOP_AFTER_MS?candidate:0;
   put('speed',speed,1);
 }
@@ -208,7 +260,7 @@ function parseInput(id){const input=$(id).value.trim().replace(',','.');return i
 $('wheel-form').addEventListener('submit',event=>{
   event.preventDefault();const circumference=parseInput('circumference'),poles=parseInput('poles');
   if(!Number.isFinite(circumference)||circumference<=0||!Number.isFinite(poles)||poles<=0){$('message').textContent='Bitte einen positiven endlichen Radumfang und positive endliche Counter-Schritte pro Radumdrehung eingeben.';return;}
-  state.circumference=circumference;state.poles=poles;resetMotion();saveState();$('message').textContent='Rad-Einstellungen gespeichert.';
+  state.circumference=circumference;state.poles=poles;pendingRecovery=null;resetMotion();saveState();$('message').textContent='Rad-Einstellungen gespeichert.';
 });
 // In-page confirmation: no dependency on native confirmation dialogs in embedded browsers.
 let pendingDistanceAction=null;
@@ -236,7 +288,7 @@ $('odometer-form').addEventListener('submit',event=>{
 });
 $('reset').addEventListener('click',()=>{
   askDistanceAction('Tageskilometer wirklich auf 0 zurücksetzen? Die Gesamtkilometer bleiben erhalten.',()=>{
-    state.trip=0;state.movingTime=0;state.averageDistance=0;averageLastArrival=null;saveState();renderDistance();$('message').textContent='Tageskilometer zurückgesetzt.';
+    state.trip=0;state.movingTime=0;state.averageDistance=0;pendingRecovery=null;resetMotion();saveState();renderDistance();$('message').textContent='Tageskilometer zurückgesetzt.';
   });
 });
 
@@ -272,8 +324,11 @@ $('disconnect-apply').addEventListener('click',()=>{
   if(target && session===target){cleanup(target);$('message').textContent='Verbindung getrennt.';}
 });
 renderConnection(false);
-function cleanup(s){
+function cleanup(s,unexpected=false,preserveRecovery=false){
   if(session!==s)return;
+  if(unexpected && distanceBaseline?.trusted){
+    pendingRecovery={baseline:{...distanceBaseline},device:s.device,disconnectedAt:performance.now()};
+  }else if(!unexpected && !preserveRecovery){pendingRecovery=null;}
   session=null;clearTimeout(s.timer);
   resetPulseDiagnostics();
   s.csc?.removeEventListener('characteristicvaluechanged',s.onData);
@@ -309,8 +364,9 @@ async function connect(){
   let s;
   try{
     const device=await navigator.bluetooth.requestDevice({filters:[{name:'APPCON3000'}],optionalServices:[UUID.service]});
-    s={device,timer:null};session=s;
-    s.onDisconnect=()=>{if(session===s){cleanup(s);$('message').textContent='Bluetooth-Verbindung getrennt. Kilometerstände bleiben erhalten.';}};
+    if(pendingRecovery && !sameDevice(device,pendingRecovery.device))pendingRecovery=null;
+    s={device,timer:null,firstPacket:true};session=s;
+    s.onDisconnect=()=>{if(session===s){cleanup(s,true);$('message').textContent='Bluetooth-Verbindung getrennt. Kilometerstände bleiben erhalten.';}};
     device.addEventListener('gattserverdisconnected',s.onDisconnect);
     const server=await device.gatt.connect();
     const service=await server.getPrimaryService(UUID.service);
@@ -321,18 +377,18 @@ async function connect(){
     if(session!==s)return;
     resetMotion();
     resetPulseDiagnostics();
-    s.onData=event=>{if(session!==s)return;try{const view=event.target.value,sample=decodeHighRes(view);debugPacket('CSC',view,sample);renderPulseDiagnostics(sample.counter);processPulses(sample,performance.now());}catch(error){console.debug('CSC-Paket verworfen',error);}};
+    s.onData=event=>{if(session!==s)return;try{const view=event.target.value,sample=decodeHighRes(view);debugPacket('CSC',view,sample);renderPulseDiagnostics(sample.counter);const receivedAt=performance.now();if(s.firstPacket){s.firstPacket=false;recoverDistance(sample,receivedAt,s.device);}processPulses(sample,receivedAt);}catch(error){console.debug('CSC-Paket verworfen',error);}};
     s.csc.addEventListener('characteristicvaluechanged',s.onData);
     await s.csc.startNotifications();
     if(session!==s)return;
     $('status').textContent='Verbunden · APPCON3000';$('connect').textContent='Verbindung trennen';
     renderConnection(true);
     void poll(s);
-  }catch(error){if(s)cleanup(s);$('status').textContent='Getrennt';$('message').textContent=friendlyError(error);}
+  }catch(error){if(s)cleanup(s,false,true);$('status').textContent='Getrennt';$('message').textContent=friendlyError(error);}
   finally{connecting=false;$('connect').disabled=false;}
 }
 $('connect').addEventListener('click',connect);
-window.addEventListener('pagehide',()=>{saveState();if(session)cleanup(session);});
+window.addEventListener('pagehide',()=>{pendingRecovery=null;saveState();if(session)cleanup(session);});
 // Nach Hintergrundpausen keine zurückliegenden Pulse als präzise Fahrtmessung ausgeben.
 document.addEventListener('visibilitychange',()=>{resetMotion();if(document.hidden)saveState();});
 $('circumference').value=String(state.circumference).replace('.',',');$('poles').value=String(state.poles).replace('.',',');$('odometer-start').value=String(state.odometer/1000).replace('.',',');
