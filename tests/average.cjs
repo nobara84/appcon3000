@@ -20,7 +20,8 @@ function setup(savedState){
   node('odometer-form').handlers.submit({preventDefault(){prevented=true;}});assert(prevented);},
  apply(){node('distance-apply').handlers.click();}};
 }
-let app=setup();
+// Preserve the original average-speed regression calibration explicitly.
+let app=setup({circumference:2.2,poles:14});
 assert.equal(app.node('average-speed').textContent,'—');
 app.run('processPulses({counter:0,poleTime:0},0);processPulses({counter:14,poleTime:32768},1000)');
 assert.equal(app.run('state.movingTime'),1);

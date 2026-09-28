@@ -16,7 +16,7 @@
 </head>
 <body>
 <main>
-<header><div><h1>APPCON3000</h1><p id="status" class="status muted" role="status">Getrennt</p><button id="connected-status" type="button" aria-label="Verbunden – Verbindung trennen" hidden><span class="connection-dot" aria-hidden="true">●</span>Verbunden</button></div><span class="version">v0.3.5</span></header>
+<header><div><h1>APPCON3000</h1><p id="status" class="status muted" role="status">Getrennt</p><button id="connected-status" type="button" aria-label="Verbunden – Verbindung trennen" hidden><span class="connection-dot" aria-hidden="true">●</span>Verbunden</button></div><span class="version">v0.3.6</span></header>
 <button id="connect" type="button">APPCON verbinden</button>
 <div id="disconnect-confirmation" class="card" role="group" aria-labelledby="disconnect-question" hidden>
 <p id="disconnect-question">Verbindung zum APPCON3000 trennen?</p>
@@ -38,7 +38,7 @@
 <p id="wake-status" class="muted" role="status">Bildschirm-Wake-Lock nicht aktiv</p>
 <p id="wake-storage" class="message" role="status"></p>
 <button id="wake-retry" type="button" class="secondary" hidden>Jetzt aktivieren</button>
-<form id="wheel-form"><label for="circumference">Radumfang in Metern</label><input id="circumference" inputmode="decimal" required><label for="poles">Polzahl</label><input id="poles" inputmode="numeric" required><button class="secondary">Rad-Einstellungen speichern</button></form>
+<form id="wheel-form"><label for="circumference">Radumfang in Metern</label><input id="circumference" inputmode="decimal" required><label for="poles">Counter-Schritte pro Radumdrehung</label><input id="poles" inputmode="decimal" required><button class="secondary">Rad-Einstellungen speichern</button></form>
 <form id="odometer-form"><label for="odometer-start">Gesamtkilometer-Startwert in km</label><input id="odometer-start" inputmode="decimal" required><button type="submit" class="secondary">Gesamtkilometer übernehmen</button></form>
 <button id="reset" type="button" class="secondary">Tageskilometer zurücksetzen</button><p class="muted"><small>Kilometerstände bleiben in diesem Browser gespeichert. Der Trip-Reset verändert die Gesamtkilometer nicht.</small></p>
 <div id="distance-confirmation" class="card" role="group" aria-labelledby="distance-question" hidden>
@@ -60,13 +60,14 @@ const put = (id, value, digits) => { $(id).textContent = format(value,digits); }
 
 // Persistenz: ungerundete Meter; keine Speicherung von BLE-Rohpaketen.
 const STORAGE_KEY = 'appcon3000.v1';
-const defaults = {circumference:2.200,poles:14,trip:0,odometer:0,movingTime:0,averageDistance:0};
+// Legacy key poles stores counter steps per wheel revolution, not physical dynamo poles.
+const defaults = {circumference:2.232,poles:12.775,trip:0,odometer:0,movingTime:0,averageDistance:0};
 const nonnegative = n => Number.isFinite(n) && n >= 0;
 function loadState(){
   try {
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
     const validAverage=nonnegative(saved.movingTime) && nonnegative(saved.averageDistance) && saved.averageDistance<=saved.trip && saved.movingTime>0;
-    return {movingTime:validAverage?saved.movingTime:0,averageDistance:validAverage?saved.averageDistance:0,circumference:Number.isFinite(saved.circumference) && saved.circumference>0 ? saved.circumference : defaults.circumference,poles:Number.isSafeInteger(saved.poles) && saved.poles>0 ? saved.poles : defaults.poles,trip:nonnegative(saved.trip)?saved.trip:0,odometer:nonnegative(saved.odometer)?saved.odometer:0};
+    return {movingTime:validAverage?saved.movingTime:0,averageDistance:validAverage?saved.averageDistance:0,circumference:Number.isFinite(saved.circumference) && saved.circumference>0 ? saved.circumference : defaults.circumference,poles:Number.isFinite(saved.poles) && saved.poles>0 ? saved.poles : defaults.poles,trip:nonnegative(saved.trip)?saved.trip:0,odometer:nonnegative(saved.odometer)?saved.odometer:0};
   } catch(error){ console.debug('Persistenz lesen',error); $('storage-message').textContent='Gespeicherte Werte konnten nicht geladen werden. Es gelten zunächst die Standardwerte.'; return {...defaults}; }
 }
 const state = loadState();
@@ -206,7 +207,7 @@ function renderTelemetry(){
 function parseInput(id){const input=$(id).value.trim().replace(',','.');return input===''?NaN:Number(input);}
 $('wheel-form').addEventListener('submit',event=>{
   event.preventDefault();const circumference=parseInput('circumference'),poles=parseInput('poles');
-  if(!Number.isFinite(circumference)||circumference<=0||!Number.isSafeInteger(poles)||poles<=0){$('message').textContent='Bitte einen positiven Radumfang und eine positive ganze Polzahl eingeben.';return;}
+  if(!Number.isFinite(circumference)||circumference<=0||!Number.isFinite(poles)||poles<=0){$('message').textContent='Bitte einen positiven endlichen Radumfang und positive endliche Counter-Schritte pro Radumdrehung eingeben.';return;}
   state.circumference=circumference;state.poles=poles;resetMotion();saveState();$('message').textContent='Rad-Einstellungen gespeichert.';
 });
 // In-page confirmation: no dependency on native confirmation dialogs in embedded browsers.
@@ -334,7 +335,7 @@ $('connect').addEventListener('click',connect);
 window.addEventListener('pagehide',()=>{saveState();if(session)cleanup(session);});
 // Nach Hintergrundpausen keine zurückliegenden Pulse als präzise Fahrtmessung ausgeben.
 document.addEventListener('visibilitychange',()=>{resetMotion();if(document.hidden)saveState();});
-$('circumference').value=String(state.circumference).replace('.',',');$('poles').value=state.poles;$('odometer-start').value=String(state.odometer/1000).replace('.',',');
+$('circumference').value=String(state.circumference).replace('.',',');$('poles').value=String(state.poles).replace('.',',');$('odometer-start').value=String(state.odometer/1000).replace('.',',');
 renderDistance();renderTelemetry();
 if(!navigator.bluetooth){$('message').textContent='Web Bluetooth ist in diesem Browser nicht verfügbar. Bitte die Seite in WebBLE öffnen.';$('connect').disabled=true;}
 try{decoderSelfTest();}catch(error){console.error(error);$('message').textContent='Interner Decoder-Test fehlgeschlagen. Verbindung aus Sicherheitsgründen deaktiviert.';$('connect').disabled=true;}

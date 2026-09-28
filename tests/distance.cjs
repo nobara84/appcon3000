@@ -20,7 +20,7 @@ function setup(savedState){
   node('odometer-form').handlers.submit({preventDefault(){prevented=true;}});assert(prevented);},
  apply(){node('distance-apply').handlers.click();}};
 }
-let app=setup();assert.equal(app.run('state.circumference'),2.2);assert.equal(app.run('state.poles'),14);
+let app=setup();assert.equal(app.run('state.circumference'),2.232);assert.equal(app.run('state.poles'),12.775);
 app=setup({circumference:2.149,poles:14,trip:123,odometer:456});
 assert.equal(app.run('state.circumference'),2.149);assert.equal(app.node('circumference').value,'2,149');
 assert.equal(app.node('trip').textContent,'0,12');assert.equal(app.node('odometer').textContent,'0,46');
@@ -52,4 +52,4 @@ assert.equal(setup(app.stored()).run('state.circumference'),2.149);
 assert(html.includes('type="submit" class="secondary">Gesamtkilometer übernehmen'));
 assert(html.includes('id="distance-apply" type="button"'));
 assert(html.includes('id="distance-cancel" type="button"'));
-console.log('PASS: comma/point, meter persistence/reload, immediate German display, preventDefault, trip-only reset, cancel/edit/double-tap, invalid/negative input, zero, default 2.200/14, stored 2.149 preserved; native confirm unavailable.');
+console.log('PASS: comma/point, meter persistence/reload, immediate German display, preventDefault, trip-only reset, cancel/edit/double-tap, invalid/negative input, zero, default 2.232/12.775, stored 2.149 preserved; native confirm unavailable.');

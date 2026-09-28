@@ -1,4 +1,4 @@
-# APPCON3000 WebBLE · v0.3.5
+# APPCON3000 WebBLE · v0.3.6
 
 Deutschsprachige, mobile Web-App als Ersatz für die nicht mehr verfügbare iOS-App des NC-17 APPCON3000 Fahrraddynamo-/Ladesystems. Eine eigenständige `index.html` mit HTML, CSS und JavaScript; ohne Framework, Build, externe Bibliotheken, CDN, Tracker oder Analytics.
 
@@ -8,16 +8,36 @@ Dieses Projekt ist eine unabhängige, inoffizielle Implementierung zur Interoper
 
 1. Die HTTPS-Seite in **WebBLE** öffnen und Bluetooth aktivieren.
 2. APPCON3000 einschalten, **APPCON verbinden** antippen und das Gerät auswählen. Bluetooth-Zugriff erlauben.
-3. Radumfang und Polzahl in den Einstellungen prüfen (Standard: 2,200 m / 14).
+3. Radumfang und Counter-Schritte pro Radumdrehung prüfen (Standard: 2,232 m / 12,775).
 4. Bei Bedarf den bisherigen Gesamtkilometerstand übernehmen; die Änderung verlangt eine Sicherheitsabfrage.
 
 Ohne `navigator.bluetooth` zeigt die App den Hinweis, die Seite in WebBLE zu öffnen. Die tatsächliche Kompatibilität mit Gerät und WebBLE muss noch auf einem iPhone geprüft werden. Hintergrundbetrieb und Bildschirm-Sperre können die Messung unterbrechen. Während einer Trennung oder Hintergrundpause ist keine vollständige Streckenerfassung gewährleistet. Nach Verbindungsaufbau bzw. Sichtbarkeitswechsel dient das erste CSC-Paket als neue Basis.
 
-Der Standard-Radumfang von **2.200 m** (Polzahl **14**) ist ein Näherungswert für
-den aktuell montierten Reifen **40-622 / 28 × 1.50 / 700 × 38C**. Eine reale
-Abrollmessung ist genauer; der Radumfang bleibt frei einstellbar. Gespeicherte
-Benutzerwerte, auch 2.149 m, werden nicht automatisch verändert. Auf dem bisher
-verwendeten Gerät kann 2,200 m einmal manuell eingetragen und gespeichert werden.
+Die aktuelle projektspezifische Kalibrierung gilt für den Reifen **40-622 / 28 × 1.50 / 700 × 38C**:
+
+- Gemessene Abrollstrecke: **11,16 m über 5 vollständige Radumdrehungen**.
+- Daraus gemessener Abrollumfang: **2,232 m** (`circumference = 2.232`).
+- 20 langsame, gleichmäßige Umdrehungen: Counter 254516 → 254772, **256 Schritte**.
+- 20 schnellere, gleichmäßige Umdrehungen: Counter 255105 → 255360, **255 Schritte**.
+- Kombiniert: **511 / 40 = 12,775 Counter-Schritte pro Radumdrehung**.
+
+Vor den Counter-Tests wurde das Rad bewegt, damit Notifications sicher liefen;
+Start und Ende wurden jeweils an derselben Ventilposition abgelesen.
+**12,775 ist ein empirischer Kalibrierwert des APPCON3000-HighRes-Counters für dieses
+konkrete Setup, keine belegte physische Dynamo-Polzahl.** Der interne und gespeicherte
+Schlüssel `poles` bleibt aus Kompatibilitätsgründen erhalten und bedeutet ausschließlich
+Counter-Schritte pro Radumdrehung (`counterStepsPerRevolution`).
+
+Beide Einstellungen akzeptieren positive endliche Dezimalwerte mit Punkt oder Komma.
+Es wird mit voller JavaScript-Number-Präzision gerechnet, ohne zusätzliche GPS-Korrektur:
+`distanceMeters = pulseDelta * circumference / counterStepsPerRevolution`.
+Damit ergeben **511 Schritte = 40 Umdrehungen = 89,28 m**.
+
+Bestehende gespeicherte Benutzerwerte, etwa **2,200 m / 14** oder 2,149 m, bleiben
+unverändert. Es gibt keine automatische Migration. Auf dem bisherigen Gerät nach dem
+Update manuell **2,232** und **12,775** einstellen und speichern; diese Werte werden
+beim nächsten Start wiederhergestellt. Neue Defaults gelten bei fehlenden oder
+ungültigen gespeicherten Kalibrierwerten.
 
 Gesamtkilometer akzeptieren Dezimalkomma und Dezimalpunkt (z. B. `1234,5` oder
 `1234.5`), ohne Tausendertrennzeichen. Übernahme und Trip-Reset zeigen eine
@@ -49,6 +69,7 @@ Es entstehen keine zusätzlichen Netzwerkrequests oder Telemetriedaten.
 
 Tests ohne Hardware: `node tests/wakelock.cjs`; bestehende Messlogiktests:
 `node tests/highres.cjs`. Einstellungen und Kilometerstände: `node tests/distance.cjs`.
+Neue Messkalibrierung, Dezimaleingaben und Erhalt gespeicherter Werte: `node tests/calibration.cjs`.
 
 ## GitHub Pages
 
@@ -128,7 +149,7 @@ nur noch der älteste Punkt verfügbar ist. Über dieses Fenster gilt:
 
 ```text
 speed_kmh = (deltaPulses / deltaPoleTime)
-            * wheelCircumference / wheelPoleCount * 32786 * 3.6
+            * wheelCircumference / counterStepsPerRevolution * 32786 * 3.6
 ```
 
 **Kompatibilitätskonstanten:** Die beobachteten Werte **32786** und **16393**
@@ -152,8 +173,8 @@ Glättung verworfen. Nach vier Sekunden ohne gültige neue Pulse wird 0 km/h ang
 Disconnect, Sichtbarkeitswechsel und Änderung der Radparameter löschen die Messbasis.
 
 Die Distanz bleibt unabhängig vom Glättungsfenster:
-`distanceMeters = adjacentPulseDelta * wheelCircumference / wheelPoleCount`.
-Radumfang (Default 2,200 m) und Polzahl (Default 14) bleiben konfigurierbar.
+`distanceMeters = adjacentPulseDelta * wheelCircumference / counterStepsPerRevolution`.
+Radumfang (Default 2,232 m) und Counter-Schritte pro Radumdrehung (Default 12,775) bleiben konfigurierbar.
 
 Lokale Regressionstests: `node tests/highres.cjs`. Sie enthalten alle 16 bereitgestellten
 selbst aufgezeichneten BLE-Testpakete sowie Rollover-, Reset-, Glättungs-, Längen- und Watchdog-Prüfungen.
@@ -195,7 +216,7 @@ Durchschnittsstrecke; Gesamtkilometer bleiben erhalten.
 
 Battery und Charger werden sofort nach dem Verbindungsaufbau und dann mit einer Sekunde Pause nach Abschluss eines Polls gelesen. Sämtliche Reads erfolgen nacheinander, ohne überlappende Polls. Ein einzelner Lesefehler trennt die Verbindung nicht; betroffene Werte werden als „—“ dargestellt und erneut abgefragt. Disconnect stoppt das Polling, setzt Geschwindigkeit auf 0 und entfernt alte Telemetrieanzeigen.
 
-Trip und Odometer werden als ungerundete Meter, Radumfang und Polzahl als Zahlen in `localStorage` gespeichert. Trip-Reset und Odometer-Änderung verlangen jeweils Bestätigung. Der Trip-Reset verändert den Odometer nicht. Speicherprobleme werden angezeigt. Browserdaten löschen oder ein anderer Browser/eine andere Origin bedeuten einen getrennten bzw. verlorenen lokalen Kilometerstand.
+Trip und Odometer werden als ungerundete Meter, Radumfang und Counter-Schritte pro Radumdrehung als Zahlen in `localStorage` gespeichert. Trip-Reset und Odometer-Änderung verlangen jeweils Bestätigung. Der Trip-Reset verändert den Odometer nicht. Speicherprobleme werden angezeigt. Browserdaten löschen oder ein anderer Browser/eine andere Origin bedeuten einen getrennten bzw. verlorenen lokalen Kilometerstand.
 
 Sämtliche BLE-Daten bleiben lokal im Browser; **unsere App überträgt keine BLE-Daten an einen Server**. GitHub Pages liefert nur die statischen Dateien aus. `console.debug` protokolliert Pakete und dekodierte Werte lokal für die Diagnose; diese Logs können Messwerte enthalten.
 
@@ -210,6 +231,15 @@ Sämtliche BLE-Daten bleiben lokal im Browser; **unsere App überträgt keine BL
 
 Dieser Changelog dokumentiert die Entwicklung unserer unabhängigen Web-App.
 Bei neuen Versionen soll er weitergeführt werden; die neueste Version steht oben.
+
+### v0.3.6
+
+- Radumfang anhand realer Abrollmessung auf 2.232 m kalibriert
+- HighRes-Counter anhand kontrollierter Radtests auf 12.775 Schritte pro Radumdrehung kalibriert
+- Einstellung „Polzahl“ in „Counter-Schritte pro Radumdrehung“ umbenannt
+- Dezimalwerte für Counter-Kalibrierung unterstützt
+- Historische Regressionstests bleiben unverändert erhalten
+- Keine Änderung an HighRes-Zeitdecoder oder Filterlogik
 
 ### v0.3.5
 
